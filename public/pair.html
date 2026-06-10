@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>SpeedyMD - Pair Device</title>
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -51,12 +51,21 @@
       font-weight: bold;
     }
     .section { display: none; }
-    .section.active { display: flex; flex-direction: column; align-items: center; }
+    .section.active { 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+    }
     .qr-box {
       background: #fff;
       padding: 20px;
       border-radius: 16px;
       margin-bottom: 16px;
+      min-width: 256px;
+      min-height: 256px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .status {
       color: #00e676;
@@ -102,14 +111,6 @@
       font-size: 1rem;
       font-weight: bold;
       cursor: pointer;
-      transition: opacity 0.3s;
-    }
-    .btn:hover { opacity: 0.85; }
-    .pair-code-display {
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      gap: 12px;
     }
     .code-box {
       background: #1a1a1a;
@@ -117,6 +118,7 @@
       border-radius: 16px;
       padding: 20px 32px;
       text-align: center;
+      display: none;
     }
     .code-label {
       color: #888;
@@ -129,11 +131,6 @@
       color: #00e676;
       letter-spacing: 8px;
     }
-    .code-hint {
-      color: #888;
-      font-size: 0.8rem;
-      margin-top: 8px;
-    }
     .connected {
       font-size: 1.5rem;
       color: #00e676;
@@ -141,11 +138,30 @@
       display: none;
       margin-top: 20px;
     }
-    .error { color: #ff5252; font-size: 0.85rem; text-align: center; }
+    .error { 
+      color: #ff5252; 
+      font-size: 0.85rem; 
+      text-align: center; 
+    }
+    .socket-status {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      background: #ff5252;
+      color: #fff;
+    }
+    .socket-status.connected-status {
+      background: #00e676;
+      color: #000;
+    }
   </style>
 </head>
 <body>
 
+  <div class="socket-status" id="socketStatus">⚡ Connecting...</div>
   <div class="logo">⚡ SpeedyMD</div>
   <div class="tagline">Smart. Fast. Always Here.</div>
 
@@ -174,9 +190,9 @@
       <p style="color:#888; font-size:0.85rem; text-align:center;">
         Enter your WhatsApp number<br/>with country code (no + or spaces)
       </p>
-      <input 
-        type="tel" 
-        id="phoneInput" 
+      <input
+        type="tel"
+        id="phoneInput"
         placeholder="e.g. 254797383865"
         maxlength="15"
       />
@@ -184,26 +200,53 @@
       <div class="error" id="errorMsg"></div>
     </div>
 
-    <div class="pair-code-display" id="codeDisplay">
-      <div class="code-box">
-        <div class="code-label">Enter this code in WhatsApp</div>
-        <div class="code-number" id="pairCode">--------</div>
-        <div class="code-hint">Linked Devices → Link with phone number</div>
+    <div class="code-box" id="codeDisplay">
+      <div class="code-label">Enter this code in WhatsApp</div>
+      <div class="code-number" id="pairCode">--------</div>
+      <div class="code-label" style="margin-top:8px;">
+        Linked Devices → Link with phone number
       </div>
-      <div class="instructions">
-        1. Open WhatsApp → Tap Menu (3 dots)<br/>
-        2. Tap Linked Devices<br/>
-        3. Tap Link a Device<br/>
-        4. Tap "Link with phone number instead"<br/>
-        5. Enter the 8-digit code above
-      </div>
+    </div>
+
+    <div class="instructions" style="margin-top:16px;">
+      1. Open WhatsApp → Tap Menu (3 dots)<br/>
+      2. Tap Linked Devices<br/>
+      3. Tap Link a Device<br/>
+      4. Tap "Link with phone number instead"<br/>
+      5. Enter the 8-digit code above
     </div>
   </div>
 
   <div class="connected" id="connected">✅ Bot Connected Successfully!</div>
 
   <script>
-    const socket = io();
+    // Connect to socket
+    const socket = io({
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    });
+
+    // Socket status indicator
+    socket.on('connect', () => {
+      console.log('✅ Socket connected:', socket.id);
+      const status = document.getElementById('socketStatus');
+      status.innerText = '✅ Connected';
+      status.classList.add('connected-status');
+    });
+
+    socket.on('disconnect', () => {
+      const status = document.getElementById('socketStatus');
+      status.innerText = '❌ Disconnected';
+      status.classList.remove('connected-status');
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('Socket error:', err.message);
+      const status = document.getElementById('socketStatus');
+      status.innerText = '❌ Connection Error';
+    });
 
     // Tab switching
     function switchTab(tab) {
@@ -220,7 +263,8 @@
 
     // QR Code
     socket.on('qr', (qrData) => {
-      document.getElementById('qrStatus').innerText = '📱 Scan this QR code with WhatsApp';
+      console.log('QR received!');
+      document.getElementById('qrStatus').innerText = '📱 Scan this QR code now!';
       const qrBox = document.getElementById('qrcode');
       qrBox.innerHTML = '';
       new QRCode(qrBox, {
@@ -241,13 +285,15 @@
         return;
       }
       errorMsg.innerText = '';
+      console.log('Requesting pair code for:', phone);
       socket.emit('requestPairCode', phone);
-      document.getElementById('numberForm').style.display = 'none';
-      document.getElementById('codeDisplay').style.display = 'flex';
       document.getElementById('pairCode').innerText = '⏳ Loading...';
+      document.getElementById('codeDisplay').style.display = 'block';
+      document.getElementById('numberForm').style.display = 'none';
     }
 
     socket.on('pairCode', (code) => {
+      console.log('Pair code received:', code);
       document.getElementById('pairCode').innerText = code;
     });
 
@@ -260,9 +306,8 @@
     // Connected
     socket.on('connected', () => {
       document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
-      document.querySelectorAll('.tabs').forEach(t => t.style.display = 'none');
       document.getElementById('connected').style.display = 'block';
     });
   </script>
 </body>
-  </html>
+</html>
