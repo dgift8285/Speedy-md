@@ -158,16 +158,21 @@ async function startBot() {
       await syncToSupabase();
 
       // Set profile picture
-      try {
-        const imgPath = join(__dirname, 'botlogo.jpg');
-        if (fs.existsSync(imgPath)) {
-          const img = fs.readFileSync(imgPath);
-          await sock.updateProfilePicture(sock.user.id, img);
-          console.log('🖼️ Profile picture updated!');
-        }
-      } catch (err) {
-        console.log('⚠️ Could not set profile picture:', err.message);
-      }
+try {
+  const imgPath = join(__dirname, 'botlogo.jpg');
+  if (fs.existsSync(imgPath)) {
+    const img = fs.readFileSync(imgPath);
+    const botJid = sock.user.id;
+    await sock.updateProfilePicture(botJid, {
+      url: imgPath,
+    });
+    console.log('🖼️ Profile picture updated!');
+  } else {
+    console.log('⚠️ botlogo.jpg not found!');
+  }
+} catch (err) {
+  console.log('⚠️ Could not set profile picture:', err.message);
+}
 
       // Send owner connect message
       try {
