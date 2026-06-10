@@ -5,6 +5,7 @@ import makeWASocket, {
   makeCacheableSignalKeyStore,
 } from '@whiskeysockets/baileys';
 import { createClient } from '@supabase/supabase-js';
+import ws from 'ws';
 import AdmZip from 'adm-zip';
 import express from 'express';
 import { createServer } from 'http';
@@ -23,7 +24,12 @@ const __dirname = dirname(__filename);
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
+  process.env.SUPABASE_ANON_KEY,
+  {
+    realtime: {
+      transport: ws,
+    },
+  }
 );
 
 const SESSION_ID = process.env.SESSION_ID || 'speedymd_session';
@@ -126,7 +132,7 @@ async function startBot() {
       try {
         const code = await sock.requestPairingCode(phone);
         const formatted = code?.match(/.{1,4}/g)?.join('-') || code;
-        console.log(`📲 Pair code generated for ${phone}: ${formatted}`);
+        console.log(`📲 Pair code for ${phone}: ${formatted}`);
         socket.emit('pairCode', formatted);
       } catch (err) {
         console.error('❌ Pair code error:', err.message);
@@ -178,7 +184,7 @@ async function startBot() {
       console.log('🔴 Connection closed. Reason:', reason);
 
       if (errorMessage.includes('conflict')) {
-        console.log('⚠️ Stream conflict! Another session running. Exiting...');
+        console.log('⚠️ Stream conflict! Exiting...');
         process.exit(1);
       }
 
