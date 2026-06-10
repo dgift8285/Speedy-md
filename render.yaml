@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: speedymd
+    runtime: node
+    buildCommand: npm install --legacy-peer-deps
+    startCommand: node index.js
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.1
+      - key: NODE_OPTIONS
+        value: --no-experimental-fetch
