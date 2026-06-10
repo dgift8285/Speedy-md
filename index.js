@@ -1,4 +1,3 @@
-import './lib/loader.js';
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
@@ -32,6 +31,7 @@ const SESSION_DIR = join(__dirname, 'session');
 const OWNER = process.env.OWNER_NUMBER + '@s.whatsapp.net';
 const BOT_NAME = process.env.BOT_NAME || 'SpeedyMD';
 const PREFIX = process.env.PREFIX || '.';
+const CHANNEL_LINK = 'https://whatsapp.com/channel/0029Vb86btmI1rci3S1NUA0G';
 
 // Express + Socket.IO setup
 const app = express();
@@ -106,7 +106,10 @@ async function startBot() {
     version,
     auth: {
       creds: state.creds,
-      keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
+      keys: makeCacheableSignalKeyStore(
+        state.keys,
+        pino({ level: 'silent' })
+      ),
     },
     printQRInTerminal: false,
     syncFullHistory: false,
@@ -115,7 +118,24 @@ async function startBot() {
     browser: [BOT_NAME, 'Chrome', '1.0.0'],
   });
 
-  // QR Code
+  // Handle pair code request from browser
+  io.on('connection', (socket) => {
+    console.log('🌐 Browser connected to pair page');
+
+    socket.on('requestPairCode', async (phone) => {
+      try {
+        const code = await sock.requestPairingCode(phone);
+        const formatted = code?.match(/.{1,4}/g)?.join('-') || code;
+        console.log(`📲 Pair code generated for ${phone}: ${formatted}`);
+        socket.emit('pairCode', formatted);
+      } catch (err) {
+        console.error('❌ Pair code error:', err.message);
+        socket.emit('pairError', err.message);
+      }
+    });
+  });
+
+  // Connection updates
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
@@ -126,6 +146,7 @@ async function startBot() {
 
     if (connection === 'open') {
       console.log(`✅ ${BOT_NAME} connected successfully!`);
+      io.emit('connected');
       await syncToSupabase();
 
       // Set profile picture
@@ -140,10 +161,10 @@ async function startBot() {
         console.log('⚠️ Could not set profile picture:', err.message);
       }
 
-      // Send owner message
+      // Send owner connect message
       try {
         await sock.sendMessage(OWNER, {
-          text: `✅ *${BOT_NAME} is now online!*\n\n⚡ _Smart. Fast. Always Here._\n\nPrefix: ${PREFIX}\nOwner: ${process.env.OWNER_NUMBER}`
+          text: `✅ *${BOT_NAME} is now online!*\n\n⚡ _Smart. Fast. Always Here._\n\n📢 *Follow our channel:*\n${CHANNEL_LINK}\n\nPrefix: *${PREFIX}*\nOwner: *${process.env.OWNER_NUMBER}*`
         });
       } catch (err) {
         console.log('⚠️ Could not send owner message:', err.message);
@@ -157,17 +178,20 @@ async function startBot() {
       console.log('🔴 Connection closed. Reason:', reason);
 
       if (errorMessage.includes('conflict')) {
-        console.log('⚠️ Stream conflict detected! Another session is running. Exiting...');
+        console.log('⚠️ Stream conflict! Another session running. Exiting...');
         process.exit(1);
       }
 
       if (reason === DisconnectReason.loggedOut) {
         console.log('🚪 Bot logged out. Clearing session...');
         fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-        await supabase.from('bu_sessions').delete().eq('id', SESSION_ID);
+        await supabase
+          .from('bu_sessions')
+          .delete()
+          .eq('id', SESSION_ID);
         startBot();
       } else {
-        console.log('🔄 Reconnecting...');
+        console.log('🔄 Reconnecting in 5 seconds...');
         setTimeout(startBot, 5000);
       }
     }
