@@ -161,17 +161,17 @@ async function startBot() {
 try {
   const imgPath = join(__dirname, 'botlogo.jpg');
   if (fs.existsSync(imgPath)) {
-    const img = fs.readFileSync(imgPath);
-    const botJid = sock.user.id;
-    await sock.updateProfilePicture(botJid, {
-      url: imgPath,
-    });
+    const imgBuffer = fs.readFileSync(imgPath);
+    await sock.updateProfilePicture(
+      sock.user.id,
+      imgBuffer
+    );
     console.log('🖼️ Profile picture updated!');
   } else {
-    console.log('⚠️ botlogo.jpg not found!');
+    console.log('⚠️ botlogo.jpg not found in:', __dirname);
   }
 } catch (err) {
-  console.log('⚠️ Could not set profile picture:', err.message);
+  console.log('⚠️ Profile picture error:', err.message);
 }
 
       // Send owner connect message
