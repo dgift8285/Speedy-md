@@ -32,4 +32,4 @@ export async function execute({ sock, from, PREFIX, getAllCommands }) {
   menuText += `_Powered by SwiftBot Tec_ 🚀`;
 
   await sock.sendMessage(from, { text: menuText });
-    }
+}
