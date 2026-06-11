@@ -1,6 +1,29 @@
-import ytdl from 'ytdl-core';
 import YouTubeSR from 'youtube-sr';
-import { PassThrough } from 'stream';
+import YTDlpWrap from 'yt-dlp-wrap';
+import fs from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Install yt-dlp binary on first run
+async function getYtDlp() {
+  try {
+    const binPath = join(__dirname, '../yt-dlp');
+    if (!fs.existsSync(binPath)) {
+      console.log('📥 Installing yt-dlp...');
+      await YTDlpWrap.downloadFromGithub(binPath);
+      execSync(`chmod +x ${binPath}`);
+      console.log('✅ yt-dlp installed!');
+    }
+    return new YTDlpWrap(binPath);
+  } catch (err) {
+    console.error('❌ yt-dlp install error:', err.message);
+    return null;
+  }
+}
 
 export const name = 'play';
 export const category = 'Music';
@@ -19,8 +42,10 @@ export async function execute({ sock, msg, from, args }) {
     text: `🎵 *Searching:* ${query}\n⏳ _Please wait..._ ⚡`
   });
 
+  const tempFile = join(__dirname, `../temp_${Date.now()}.mp3`);
+
   try {
-    // Search YouTube directly
+    // Search YouTube
     const results = await YouTubeSR.YouTube.search(query, {
       limit: 1,
       type: 'video',
@@ -38,29 +63,43 @@ export async function execute({ sock, msg, from, args }) {
     const artist = video.channel?.name || 'Unknown';
     const duration = video.durationFormatted || '';
 
-    console.log(`🎵 Found: ${title} - ${videoUrl}`);
+    console.log(`🎵 Found: ${title}`);
 
     await sock.sendMessage(from, {
       text: `✅ *Found!*\n\n🎵 *${title}*\n👤 *${artist}*\n⏱️ *${duration}*\n\n_Downloading..._ ⚡`
     });
 
-    // Download directly from YouTube
-    const audioStream = ytdl(videoUrl, {
-      filter: 'audioonly',
-      quality: 'highestaudio',
-      highWaterMark: 1 << 25,
-    });
+    // Get yt-dlp
+    const ytDlp = await getYtDlp();
+    if (!ytDlp) {
+      return await sock.sendMessage(from, {
+        text: `❌ Download tool not available. Please try again!`
+      });
+    }
 
-    // Convert stream to buffer
-    const chunks = [];
-    await new Promise((resolve, reject) => {
-      audioStream.on('data', chunk => chunks.push(chunk));
-      audioStream.on('end', resolve);
-      audioStream.on('error', reject);
-    });
+    // Download audio
+    await ytDlp.execPromise([
+      videoUrl,
+      '-x',
+      '--audio-format', 'mp3',
+      '--audio-quality', '0',
+      '-o', tempFile,
+      '--no-playlist',
+      '--quiet',
+    ]);
 
-    const audioBuffer = Buffer.concat(chunks);
+    // Check if file exists
+    if (!fs.existsSync(tempFile)) {
+      // Try with different output name
+      const altFile = tempFile.replace('.mp3', '.webm.mp3');
+      if (fs.existsSync(altFile)) {
+        fs.renameSync(altFile, tempFile);
+      } else {
+        throw new Error('Downloaded file not found');
+      }
+    }
 
+    const audioBuffer = fs.readFileSync(tempFile);
     console.log(`✅ Downloaded ${audioBuffer.length} bytes`);
 
     await sock.sendMessage(from, {
@@ -70,8 +109,17 @@ export async function execute({ sock, msg, from, args }) {
       fileName: `${title}.mp3`,
     });
 
+    // Clean up temp file
+    fs.unlinkSync(tempFile);
+
   } catch (err) {
     console.error('❌ Play error:', err.message);
+
+    // Clean up temp file if exists
+    if (fs.existsSync(tempFile)) {
+      fs.unlinkSync(tempFile);
+    }
+
     await sock.sendMessage(from, {
       text: `❌ *Download failed!*\n\n_Error: ${err.message}_\n\nPlease try again!`
     });
