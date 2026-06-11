@@ -1,5 +1,5 @@
 import YouTubeSR from 'youtube-sr';
-import { execSync, exec } from 'child_process';
+import { exec } from 'child_process';
 import fs from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -13,9 +13,8 @@ async function installYtDlp() {
   try {
     if (!fs.existsSync(binPath)) {
       console.log('📥 Downloading yt-dlp...');
-      execSync(
-        `curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ${binPath} && chmod +x ${binPath}`,
-        { timeout: 60000 }
+      await runCommand(
+        `curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ${binPath} && chmod +x ${binPath}`
       );
       console.log('✅ yt-dlp ready!');
     }
@@ -26,10 +25,9 @@ async function installYtDlp() {
   }
 }
 
-// Run yt-dlp command
-function runYtDlp(binPath, args) {
+function runCommand(cmd, timeout = 120000) {
   return new Promise((resolve, reject) => {
-    exec(`${binPath} ${args}`, { timeout: 120000 }, (err, stdout, stderr) => {
+    exec(cmd, { timeout }, (err, stdout, stderr) => {
       if (err) reject(new Error(stderr || err.message));
       else resolve(stdout);
     });
@@ -53,7 +51,8 @@ export async function execute({ sock, msg, from, args }) {
     text: `🎵 *Searching:* ${query}\n⏳ _Please wait..._ ⚡`
   });
 
-  const tempFile = `/tmp/audio_${Date.now()}`;
+  const timestamp = Date.now();
+  const tempFile = `/tmp/audio_${timestamp}`;
 
   try {
     // Search YouTube
@@ -84,27 +83,93 @@ export async function execute({ sock, msg, from, args }) {
     const binPath = await installYtDlp();
     if (!binPath) {
       return await sock.sendMessage(from, {
-        text: `❌ Download tool failed to install. Try again!`
+        text: `❌ Download tool failed. Try again!`
       });
     }
 
-    // Download audio
-    await runYtDlp(
-      binPath,
-      `-x --audio-format mp3 --audio-quality 0 -o "${tempFile}.%(ext)s" --no-playlist "${videoUrl}"`
-    );
+    // Download with multiple fallback methods
+    let audioFile = null;
 
-    // Find downloaded file
-    let audioFile = `${tempFile}.mp3`;
-    if (!fs.existsSync(audioFile)) {
-      const files = fs.readdirSync('/tmp').filter(f =>
-        f.startsWith(`audio_`) && f.endsWith('.mp3')
+    // Method 1: Use android client to bypass bot check
+    try {
+      await runCommand(
+        `${binPath} -x --audio-format mp3 --audio-quality 0 \
+        --extractor-args "youtube:player_client=android" \
+        --no-playlist \
+        -o "${tempFile}.%(ext)s" \
+        "${videoUrl}"`,
+        120000
       );
-      if (files.length > 0) {
-        audioFile = `/tmp/${files[files.length - 1]}`;
-      } else {
-        throw new Error('Audio file not found after download');
+      if (fs.existsSync(`${tempFile}.mp3`)) {
+        audioFile = `${tempFile}.mp3`;
+        console.log('✅ Method 1 success (android client)');
       }
+    } catch {
+      console.log('Method 1 failed, trying Method 2...');
+    }
+
+    // Method 2: Use ios client
+    if (!audioFile) {
+      try {
+        await runCommand(
+          `${binPath} -x --audio-format mp3 --audio-quality 0 \
+          --extractor-args "youtube:player_client=ios" \
+          --no-playlist \
+          -o "${tempFile}2.%(ext)s" \
+          "${videoUrl}"`,
+          120000
+        );
+        if (fs.existsSync(`${tempFile}2.mp3`)) {
+          audioFile = `${tempFile}2.mp3`;
+          console.log('✅ Method 2 success (ios client)');
+        }
+      } catch {
+        console.log('Method 2 failed, trying Method 3...');
+      }
+    }
+
+    // Method 3: Use tv_embedded client
+    if (!audioFile) {
+      try {
+        await runCommand(
+          `${binPath} -x --audio-format mp3 --audio-quality 0 \
+          --extractor-args "youtube:player_client=tv_embedded" \
+          --no-playlist \
+          -o "${tempFile}3.%(ext)s" \
+          "${videoUrl}"`,
+          120000
+        );
+        if (fs.existsSync(`${tempFile}3.mp3`)) {
+          audioFile = `${tempFile}3.mp3`;
+          console.log('✅ Method 3 success (tv_embedded client)');
+        }
+      } catch {
+        console.log('Method 3 failed, trying Method 4...');
+      }
+    }
+
+    // Method 4: Use mweb client
+    if (!audioFile) {
+      try {
+        await runCommand(
+          `${binPath} -x --audio-format mp3 --audio-quality 0 \
+          --extractor-args "youtube:player_client=mweb" \
+          --no-playlist \
+          -o "${tempFile}4.%(ext)s" \
+          "${videoUrl}"`,
+          120000
+        );
+        if (fs.existsSync(`${tempFile}4.mp3`)) {
+          audioFile = `${tempFile}4.mp3`;
+          console.log('✅ Method 4 success (mweb client)');
+        }
+      } catch {
+        console.log('Method 4 failed...');
+      }
+    }
+
+    if (!audioFile) {
+      throw new Error('All download methods failed');
     }
 
     const audioBuffer = fs.readFileSync(audioFile);
@@ -123,17 +188,19 @@ export async function execute({ sock, msg, from, args }) {
 
   } catch (err) {
     console.error('❌ Play error:', err.message);
+
+    // Cleanup temp files
     try {
-      const files = fs.readdirSync('/tmp').filter(f =>
-        f.startsWith('audio_')
-      );
-      files.forEach(f => {
-        try { fs.unlinkSync(`/tmp/${f}`); } catch {}
+      [1, 2, 3, 4].forEach(i => {
+        const f = i === 1
+          ? `${tempFile}.mp3`
+          : `/tmp/audio_${timestamp}${i}.mp3`;
+        if (fs.existsSync(f)) fs.unlinkSync(f);
       });
     } catch {}
 
     await sock.sendMessage(from, {
-      text: `❌ *Download failed!*\n\n_${err.message}_\n\nPlease try again!`
+      text: `❌ *Download failed!*\n\nYouTube is blocking downloads right now.\n\nPlease try again in a few minutes!`
     });
   }
 }
