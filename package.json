@@ -8,20 +8,20 @@
     "node": "20.11.1"
   },
   "scripts": {
-    "start": "node--experimental-websocketindex.js"
+    "start": "node --experimental-websocket index.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "6.7.18",
     "@supabase/supabase-js": "^2.39.0",
     "adm-zip": "^0.5.10",
-    "ws": "^8.16.0",
-"ytdl-core": "^4.11.5",
-"youtube-sr": "^4.3.11"
     "axios": "^1.6.0",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "pino": "^8.17.0",
     "qrcode": "^1.5.3",
-    "socket.io": "^4.6.1"
+    "socket.io": "^4.6.1",
+    "ws": "^8.16.0",
+    "ytdl-core": "^4.11.5",
+    "youtube-sr": "^4.3.11"
   }
 }
