@@ -195,19 +195,40 @@ try {
         process.exit(1);
       }
 
-      if (reason === DisconnectReason.loggedOut) {
-        console.log('🚪 Bot logged out. Clearing session...');
-        fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-        await supabase
-          .from('bu_sessions')
-          .delete()
-          .eq('id', SESSION_ID);
-        startBot();
-      } else {
-        console.log('🔄 Reconnecting in 5 seconds...');
-        setTimeout(startBot, 5000);
-      }
-    }
+     if (connection === 'close') {
+  const reason = lastDisconnect?.error?.output?.statusCode;
+  const errorMessage = lastDisconnect?.error?.message || '';
+
+  console.log('🔴 Connection closed. Reason:', reason);
+
+  if (errorMessage.includes('conflict')) {
+    console.log('⚠️ Stream conflict! Exiting...');
+    process.exit(1);
+  }
+
+  if (reason === DisconnectReason.loggedOut) {
+    console.log('🚪 Bot logged out. Clearing session...');
+    fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+    await supabase
+      .from('bu_sessions')
+      .delete()
+      .eq('id', SESSION_ID);
+    console.log('🔄 Restarting bot...');
+    setTimeout(startBot, 3000);
+  } else if (reason === DisconnectReason.restartRequired) {
+    console.log('🔄 Restart required. Restarting...');
+    setTimeout(startBot, 3000);
+  } else if (reason === DisconnectReason.connectionReplaced) {
+    console.log('⚠️ Connection replaced! Another session opened.');
+    process.exit(1);
+  } else if (reason === DisconnectReason.timedOut) {
+    console.log('⏱️ Connection timed out. Reconnecting...');
+    setTimeout(startBot, 5000);
+  } else {
+    console.log('🔄 Reconnecting in 5 seconds...');
+    setTimeout(startBot, 5000);
+  }
+}
   });
 
   sock.ev.on('creds.update', async () => {
