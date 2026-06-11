@@ -1,11 +1,9 @@
-import baileys from '@whiskeysockets/baileys';
-const {
-  default: makeWASocket,
+import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
-} = baileys;
+} from '@whiskeysockets/baileys';
 import { createClient } from '@supabase/supabase-js';
 import ws from 'ws';
 import AdmZip from 'adm-zip';
@@ -41,7 +39,6 @@ const BOT_NAME = process.env.BOT_NAME || 'SpeedyMD';
 const PREFIX = process.env.PREFIX || '.';
 const CHANNEL_LINK = 'https://whatsapp.com/channel/0029Vb86btmI1rci3S1NUA0G';
 
-// Express + Socket.IO setup
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer);
@@ -61,7 +58,6 @@ httpServer.listen(PORT, () => {
   console.log(`🌐 Server running on port ${PORT}`);
 });
 
-// Save session to Supabase
 let lastSync = 0;
 async function syncToSupabase() {
   const now = Date.now();
@@ -82,7 +78,6 @@ async function syncToSupabase() {
   }
 }
 
-// Load session from Supabase
 async function loadFromSupabase() {
   try {
     const { data, error } = await supabase
@@ -102,9 +97,11 @@ async function loadFromSupabase() {
   }
 }
 
-// Main bot function
 async function startBot() {
-  if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR);
+  if (!fs.existsSync(SESSION_DIR)) {
+    fs.mkdirSync(SESSION_DIR);
+  }
+
   await loadFromSupabase();
 
   const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
@@ -126,10 +123,8 @@ async function startBot() {
     browser: [BOT_NAME, 'Chrome', '1.0.0'],
   });
 
-  // Handle pair code request from browser
   io.on('connection', (socket) => {
     console.log('🌐 Browser connected to pair page');
-
     socket.on('requestPairCode', async (phone) => {
       try {
         const code = await sock.requestPairingCode(phone);
@@ -143,7 +138,6 @@ async function startBot() {
     });
   });
 
-  // Connection updates
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
@@ -157,24 +151,19 @@ async function startBot() {
       io.emit('connected');
       await syncToSupabase();
 
-      // Set profile picture
-try {
-  const imgPath = join(__dirname, 'botlogo.jpg');
-  if (fs.existsSync(imgPath)) {
-    const imgBuffer = fs.readFileSync(imgPath);
-    await sock.updateProfilePicture(
-      sock.user.id,
-      imgBuffer
-    );
-    console.log('🖼️ Profile picture updated!');
-  } else {
-    console.log('⚠️ botlogo.jpg not found in:', __dirname);
-  }
-} catch (err) {
-  console.log('⚠️ Profile picture error:', err.message);
-}
+      try {
+        const imgPath = join(__dirname, 'botlogo.jpg');
+        if (fs.existsSync(imgPath)) {
+          const imgBuffer = fs.readFileSync(imgPath);
+          await sock.updateProfilePicture(sock.user.id, imgBuffer);
+          console.log('🖼️ Profile picture updated!');
+        } else {
+          console.log('⚠️ botlogo.jpg not found');
+        }
+      } catch (err) {
+        console.log('⚠️ Profile picture error:', err.message);
+      }
 
-      // Send owner connect message
       try {
         await sock.sendMessage(OWNER, {
           text: `✅ *${BOT_NAME} is now online!*\n\n⚡ _Smart. Fast. Always Here._\n\n📢 *Follow our channel:*\n${CHANNEL_LINK}\n\nPrefix: *${PREFIX}*\nOwner: *${process.env.OWNER_NUMBER}*`
@@ -195,40 +184,29 @@ try {
         process.exit(1);
       }
 
-     if (connection === 'close') {
-  const reason = lastDisconnect?.error?.output?.statusCode;
-  const errorMessage = lastDisconnect?.error?.message || '';
-
-  console.log('🔴 Connection closed. Reason:', reason);
-
-  if (errorMessage.includes('conflict')) {
-    console.log('⚠️ Stream conflict! Exiting...');
-    process.exit(1);
-  }
-
-  if (reason === DisconnectReason.loggedOut) {
-    console.log('🚪 Bot logged out. Clearing session...');
-    fs.rmSync(SESSION_DIR, { recursive: true, force: true });
-    await supabase
-      .from('bu_sessions')
-      .delete()
-      .eq('id', SESSION_ID);
-    console.log('🔄 Restarting bot...');
-    setTimeout(startBot, 3000);
-  } else if (reason === DisconnectReason.restartRequired) {
-    console.log('🔄 Restart required. Restarting...');
-    setTimeout(startBot, 3000);
-  } else if (reason === DisconnectReason.connectionReplaced) {
-    console.log('⚠️ Connection replaced! Another session opened.');
-    process.exit(1);
-  } else if (reason === DisconnectReason.timedOut) {
-    console.log('⏱️ Connection timed out. Reconnecting...');
-    setTimeout(startBot, 5000);
-  } else {
-    console.log('🔄 Reconnecting in 5 seconds...');
-    setTimeout(startBot, 5000);
-  }
-}
+      if (reason === DisconnectReason.loggedOut) {
+        console.log('🚪 Bot logged out. Clearing session...');
+        fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+        await supabase
+          .from('bu_sessions')
+          .delete()
+          .eq('id', SESSION_ID);
+        console.log('🔄 Restarting bot...');
+        setTimeout(startBot, 3000);
+      } else if (reason === DisconnectReason.restartRequired) {
+        console.log('🔄 Restart required. Restarting...');
+        setTimeout(startBot, 3000);
+      } else if (reason === DisconnectReason.connectionReplaced) {
+        console.log('⚠️ Connection replaced!');
+        process.exit(1);
+      } else if (reason === DisconnectReason.timedOut) {
+        console.log('⏱️ Connection timed out. Reconnecting...');
+        setTimeout(startBot, 5000);
+      } else {
+        console.log('🔄 Reconnecting in 5 seconds...');
+        setTimeout(startBot, 5000);
+      }
+    }
   });
 
   sock.ev.on('creds.update', async () => {
