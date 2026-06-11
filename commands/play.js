@@ -1,28 +1,39 @@
 import YouTubeSR from 'youtube-sr';
-import YTDlpWrap from 'yt-dlp-wrap';
+import { execSync, exec } from 'child_process';
 import fs from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Install yt-dlp binary on first run
-async function getYtDlp() {
+// Install yt-dlp binary
+async function installYtDlp() {
+  const binPath = '/tmp/yt-dlp';
   try {
-    const binPath = join(__dirname, '../yt-dlp');
     if (!fs.existsSync(binPath)) {
-      console.log('📥 Installing yt-dlp...');
-      await YTDlpWrap.downloadFromGithub(binPath);
-      execSync(`chmod +x ${binPath}`);
-      console.log('✅ yt-dlp installed!');
+      console.log('📥 Downloading yt-dlp...');
+      execSync(
+        `curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ${binPath} && chmod +x ${binPath}`,
+        { timeout: 60000 }
+      );
+      console.log('✅ yt-dlp ready!');
     }
-    return new YTDlpWrap(binPath);
+    return binPath;
   } catch (err) {
-    console.error('❌ yt-dlp install error:', err.message);
+    console.error('❌ yt-dlp install failed:', err.message);
     return null;
   }
+}
+
+// Run yt-dlp command
+function runYtDlp(binPath, args) {
+  return new Promise((resolve, reject) => {
+    exec(`${binPath} ${args}`, { timeout: 120000 }, (err, stdout, stderr) => {
+      if (err) reject(new Error(stderr || err.message));
+      else resolve(stdout);
+    });
+  });
 }
 
 export const name = 'play';
@@ -42,7 +53,7 @@ export async function execute({ sock, msg, from, args }) {
     text: `🎵 *Searching:* ${query}\n⏳ _Please wait..._ ⚡`
   });
 
-  const tempFile = join(__dirname, `../temp_${Date.now()}.mp3`);
+  const tempFile = `/tmp/audio_${Date.now()}`;
 
   try {
     // Search YouTube
@@ -69,39 +80,37 @@ export async function execute({ sock, msg, from, args }) {
       text: `✅ *Found!*\n\n🎵 *${title}*\n👤 *${artist}*\n⏱️ *${duration}*\n\n_Downloading..._ ⚡`
     });
 
-    // Get yt-dlp
-    const ytDlp = await getYtDlp();
-    if (!ytDlp) {
+    // Install yt-dlp
+    const binPath = await installYtDlp();
+    if (!binPath) {
       return await sock.sendMessage(from, {
-        text: `❌ Download tool not available. Please try again!`
+        text: `❌ Download tool failed to install. Try again!`
       });
     }
 
     // Download audio
-    await ytDlp.execPromise([
-      videoUrl,
-      '-x',
-      '--audio-format', 'mp3',
-      '--audio-quality', '0',
-      '-o', tempFile,
-      '--no-playlist',
-      '--quiet',
-    ]);
+    await runYtDlp(
+      binPath,
+      `-x --audio-format mp3 --audio-quality 0 -o "${tempFile}.%(ext)s" --no-playlist "${videoUrl}"`
+    );
 
-    // Check if file exists
-    if (!fs.existsSync(tempFile)) {
-      // Try with different output name
-      const altFile = tempFile.replace('.mp3', '.webm.mp3');
-      if (fs.existsSync(altFile)) {
-        fs.renameSync(altFile, tempFile);
+    // Find downloaded file
+    let audioFile = `${tempFile}.mp3`;
+    if (!fs.existsSync(audioFile)) {
+      const files = fs.readdirSync('/tmp').filter(f =>
+        f.startsWith(`audio_`) && f.endsWith('.mp3')
+      );
+      if (files.length > 0) {
+        audioFile = `/tmp/${files[files.length - 1]}`;
       } else {
-        throw new Error('Downloaded file not found');
+        throw new Error('Audio file not found after download');
       }
     }
 
-    const audioBuffer = fs.readFileSync(tempFile);
+    const audioBuffer = fs.readFileSync(audioFile);
     console.log(`✅ Downloaded ${audioBuffer.length} bytes`);
 
+    // Send audio
     await sock.sendMessage(from, {
       audio: audioBuffer,
       mimetype: 'audio/mpeg',
@@ -109,19 +118,22 @@ export async function execute({ sock, msg, from, args }) {
       fileName: `${title}.mp3`,
     });
 
-    // Clean up temp file
-    fs.unlinkSync(tempFile);
+    // Cleanup
+    try { fs.unlinkSync(audioFile); } catch {}
 
   } catch (err) {
     console.error('❌ Play error:', err.message);
-
-    // Clean up temp file if exists
-    if (fs.existsSync(tempFile)) {
-      fs.unlinkSync(tempFile);
-    }
+    try {
+      const files = fs.readdirSync('/tmp').filter(f =>
+        f.startsWith('audio_')
+      );
+      files.forEach(f => {
+        try { fs.unlinkSync(`/tmp/${f}`); } catch {}
+      });
+    } catch {}
 
     await sock.sendMessage(from, {
-      text: `❌ *Download failed!*\n\n_Error: ${err.message}_\n\nPlease try again!`
+      text: `❌ *Download failed!*\n\n_${err.message}_\n\nPlease try again!`
     });
   }
 }
