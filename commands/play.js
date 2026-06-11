@@ -7,7 +7,7 @@ export const description = 'Search and download any music in any language';
 export async function execute({ sock, msg, from, args }) {
   if (!args[0]) {
     return await sock.sendMessage(from, {
-      text: `🎵 *SpeedyMD Music Player*\n\n❌ Please provide a song name!\n\nExamples:\n.play shape of you\n.play figo wa mtaa\n.play burna boy last last\n.play diamond platnumz`
+      text: `🎵 *SpeedyMD Music*\n\n❌ Please provide a song name!\n\nExamples:\n.play shape of you\n.play figo wa mtaa\n.play burna boy`
     });
   }
 
@@ -24,217 +24,210 @@ export async function execute({ sock, msg, from, args }) {
     let duration = '';
     let videoUrl = null;
 
-    // Search API 1 - most reliable
+    // Step 1: Search for video
     try {
-      const s1 = await axios.get(
-        `https://api.popcat.xyz/youtube/search?q=${encodeURIComponent(query)}`,
+      const search = await axios.get(
+        `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`,
         {
-          headers: { 'User-Agent': 'Mozilla/5.0' },
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
           timeout: 15000,
         }
       );
-      if (s1.data?.[0]) {
-        const first = s1.data[0];
-        videoUrl = first.url;
-        title = first.title || query;
-        artist = first.channel || 'Unknown';
-        duration = first.duration || '';
-        console.log('✅ Search API 1 success:', title);
+      const html = search.data;
+      const match = html.match(/"videoId":"([^"]+)"/);
+      const titleMatch = html.match(/"title":{"runs":\[{"text":"([^"]+)"/);
+      if (match) {
+        const vid = match[1];
+        videoUrl = `https://www.youtube.com/watch?v=${vid}`;
+        title = titleMatch ? titleMatch[1] : query;
+        console.log('✅ Found video:', videoUrl);
       }
     } catch {
-      console.log('Search API 1 failed...');
+      console.log('YouTube search failed...');
     }
 
-    // Search API 2
-    if (!videoUrl) {
-      try {
-        const s2 = await axios.get(
-          `https://api.siputzx.my.id/api/s/youtube?q=${encodeURIComponent(query)}`,
-          {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            timeout: 15000,
-          }
-        );
-        if (s2.data?.data?.[0]) {
-          const first = s2.data.data[0];
-          videoUrl = `https://www.youtube.com/watch?v=${first.id}`;
-          title = first.title || query;
-          artist = first.channel || 'Unknown';
-          duration = first.duration || '';
-          console.log('✅ Search API 2 success:', title);
-        }
-      } catch {
-        console.log('Search API 2 failed...');
-      }
-    }
-
-    // Search API 3
-    if (!videoUrl) {
-      try {
-        const s3 = await axios.get(
-          `https://api.agatz.xyz/api/ytsearch?message=${encodeURIComponent(query)}`,
-          {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            timeout: 15000,
-          }
-        );
-        if (s3.data?.data?.[0]) {
-          const first = s3.data.data[0];
-          videoUrl = `https://www.youtube.com/watch?v=${first.id}`;
-          title = first.title || query;
-          artist = first.channel || 'Unknown';
-          duration = first.duration || '';
-          console.log('✅ Search API 3 success:', title);
-        }
-      } catch {
-        console.log('Search API 3 failed...');
-      }
-    }
-
-    // Fallback URL
     if (!videoUrl) {
       videoUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
-      console.log('Using fallback URL...');
     }
 
-    // Download API 1 - most reliable
+    // Step 2: Download using multiple APIs
+
+    // API 1 - yt-download.org
     try {
       const dl1 = await axios.get(
-        `https://api.popcat.xyz/ytdl?url=${encodeURIComponent(videoUrl)}&format=mp3`,
+        `https://yt-download.org/api/button/mp3/${videoUrl.split('v=')[1] || ''}`,
         {
           headers: { 'User-Agent': 'Mozilla/5.0' },
-          timeout: 30000,
+          timeout: 20000,
         }
       );
       if (dl1.data?.url) {
         audioUrl = dl1.data.url;
-        title = dl1.data.title || title;
-        duration = dl1.data.duration || duration;
-        console.log('✅ Download API 1 success');
+        console.log('✅ API 1 success');
       }
     } catch {
-      console.log('Download API 1 failed...');
+      console.log('API 1 failed...');
     }
 
-    // Download API 2
+    // API 2 - loader.to
     if (!audioUrl) {
       try {
+        const videoId = videoUrl.includes('v=')
+          ? videoUrl.split('v=')[1]
+          : videoUrl.split('youtu.be/')[1];
+
         const dl2 = await axios.get(
-          `https://api.siputzx.my.id/api/d/ytmp3?url=${encodeURIComponent(videoUrl)}`,
+          `https://loader.to/ajax/download.php?format=mp3&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`,
           {
             headers: { 'User-Agent': 'Mozilla/5.0' },
-            timeout: 30000,
+            timeout: 20000,
           }
         );
-        if (dl2.data?.data?.dl_url) {
-          audioUrl = dl2.data.data.dl_url;
-          title = dl2.data.data.title || title;
-          duration = dl2.data.data.duration || duration;
-          console.log('✅ Download API 2 success');
+        if (dl2.data?.success && dl2.data?.id) {
+          // Poll for download
+          const id = dl2.data.id;
+          for (let i = 0; i < 10; i++) {
+            await new Promise(r => setTimeout(r, 3000));
+            const progress = await axios.get(
+              `https://loader.to/ajax/progress.php?id=${id}`,
+              { timeout: 10000 }
+            );
+            if (progress.data?.download_url) {
+              audioUrl = progress.data.download_url;
+              console.log('✅ API 2 success');
+              break;
+            }
+          }
         }
       } catch {
-        console.log('Download API 2 failed...');
+        console.log('API 2 failed...');
       }
     }
 
-    // Download API 3
+    // API 3 - MP3 download direct
     if (!audioUrl) {
       try {
-        const dl3 = await axios.get(
-          `https://api.agatz.xyz/api/ytmp3?url=${encodeURIComponent(videoUrl)}`,
-          {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            timeout: 30000,
-          }
-        );
-        if (dl3.data?.data?.url) {
-          audioUrl = dl3.data.data.url;
-          title = dl3.data.data.title || title;
-          duration = dl3.data.data.duration || duration;
-          console.log('✅ Download API 3 success');
-        }
-      } catch {
-        console.log('Download API 3 failed...');
-      }
-    }
+        const videoId = videoUrl.includes('v=')
+          ? videoUrl.split('v=')[1]?.split('&')[0]
+          : null;
 
-    // Download API 4
-    if (!audioUrl) {
-      try {
-        const dl4 = await axios.get(
-          `https://api.ryzendesu.vip/api/downloader/ytmp3?url=${encodeURIComponent(videoUrl)}`,
-          {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            timeout: 30000,
-          }
-        );
-        if (dl4.data?.url) {
-          audioUrl = dl4.data.url;
-          title = dl4.data.title || title;
-          duration = dl4.data.duration || duration;
-          console.log('✅ Download API 4 success');
-        }
-      } catch {
-        console.log('Download API 4 failed...');
-      }
-    }
-
-    // Download API 5 - cobalt
-    if (!audioUrl) {
-      try {
-        const dl5 = await axios.post(
-          'https://co.wuk.sh/api/json',
-          {
-            url: videoUrl,
-            aFormat: 'mp3',
-            isAudioOnly: true,
-          },
-          {
-            headers: {
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'User-Agent': 'Mozilla/5.0',
+        if (videoId) {
+          const dl3 = await axios.post(
+            'https://co.wuk.sh/api/json',
+            {
+              url: `https://www.youtube.com/watch?v=${videoId}`,
+              aFormat: 'mp3',
+              isAudioOnly: true,
             },
-            timeout: 30000,
+            {
+              headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0',
+              },
+              timeout: 30000,
+            }
+          );
+          if (dl3.data?.url) {
+            audioUrl = dl3.data.url;
+            console.log('✅ API 3 success');
           }
-        );
-        if (dl5.data?.url) {
-          audioUrl = dl5.data.url;
-          console.log('✅ Download API 5 success');
         }
       } catch {
-        console.log('Download API 5 failed...');
+        console.log('API 3 failed...');
       }
     }
 
-    // Download API 6 - zylalabs
+    // API 4 - y2mate
     if (!audioUrl) {
       try {
-        const dl6 = await axios.get(
-          `https://zylalabs.com/api/320/youtube+mp3+downloader+api/259/get+mp3?yt_url=${encodeURIComponent(videoUrl)}`,
-          {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            timeout: 30000,
+        const videoId = videoUrl.includes('v=')
+          ? videoUrl.split('v=')[1]?.split('&')[0]
+          : null;
+
+        if (videoId) {
+          const analyze = await axios.post(
+            'https://www.y2mate.com/mates/analyzeV2/ajax',
+            new URLSearchParams({
+              k_query: `https://www.youtube.com/watch?v=${videoId}`,
+              k_page: 'home',
+              hl: 'en',
+              q_auto: '0',
+            }),
+            {
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'Mozilla/5.0',
+              },
+              timeout: 20000,
+            }
+          );
+
+          if (analyze.data?.vid) {
+            const vid = analyze.data.vid;
+            title = analyze.data.title || title;
+
+            const convert = await axios.post(
+              'https://www.y2mate.com/mates/convertV2/index',
+              new URLSearchParams({
+                vid,
+                k: analyze.data?.links?.mp3?.mp3128?.k || '',
+              }),
+              {
+                headers: {
+                  'Content-Type': 'application/x-www-form-urlencoded',
+                  'User-Agent': 'Mozilla/5.0',
+                },
+                timeout: 30000,
+              }
+            );
+
+            if (convert.data?.dlink) {
+              audioUrl = convert.data.dlink;
+              console.log('✅ API 4 success');
+            }
           }
-        );
-        if (dl6.data?.url) {
-          audioUrl = dl6.data.url;
-          console.log('✅ Download API 6 success');
         }
       } catch {
-        console.log('Download API 6 failed...');
+        console.log('API 4 failed...');
+      }
+    }
+
+    // API 5 - mp3.dev
+    if (!audioUrl) {
+      try {
+        const videoId = videoUrl.includes('v=')
+          ? videoUrl.split('v=')[1]?.split('&')[0]
+          : null;
+
+        if (videoId) {
+          const dl5 = await axios.get(
+            `https://api.vevioz.com/api/button/mp3/${videoId}`,
+            {
+              headers: { 'User-Agent': 'Mozilla/5.0' },
+              timeout: 20000,
+            }
+          );
+          if (dl5.data?.url || dl5.request?.res?.responseUrl) {
+            audioUrl = dl5.data?.url || dl5.request?.res?.responseUrl;
+            console.log('✅ API 5 success');
+          }
+        }
+      } catch {
+        console.log('API 5 failed...');
       }
     }
 
     if (!audioUrl) {
       return await sock.sendMessage(from, {
-        text: `❌ *Could not download:* ${title}\n\n_Try:_\n• Different song name\n• Add artist name\n• Try again later\n\nExample: *.play Ed Sheeran Perfect*`
+        text: `❌ *Could not download:* ${title}\n\n_All download servers are busy right now._\n\nPlease try:\n• Again in 1 minute\n• Different song name\n• Add artist name\n\nExample: *.play Ed Sheeran Perfect*`
       });
     }
 
-    // Send info message
     await sock.sendMessage(from, {
-      text: `✅ *Found!*\n\n🎵 *${title}*\n👤 *${artist}*\n⏱️ *${duration}*\n\n_Sending audio..._ ⚡`
+      text: `✅ *Found!*\n\n🎵 *${title}*\n👤 *${artist}*\n\n_Sending full audio..._ ⚡`
     });
 
     // Download full audio
@@ -250,7 +243,6 @@ export async function execute({ sock, msg, from, args }) {
 
     const audioBuffer = Buffer.from(audioResponse.data);
 
-    // Send audio
     await sock.sendMessage(from, {
       audio: audioBuffer,
       mimetype: 'audio/mpeg',
@@ -261,7 +253,7 @@ export async function execute({ sock, msg, from, args }) {
   } catch (err) {
     console.error('❌ Play error:', err.message);
     await sock.sendMessage(from, {
-      text: `❌ *Download failed!*\n\n_Error: ${err.message}_\n\nPlease try again with a different song name.`
+      text: `❌ *Download failed!*\n\n_Error: ${err.message}_\n\nPlease try again!`
     });
   }
 }
