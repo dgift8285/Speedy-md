@@ -1,13 +1,16 @@
-import YouTubeSR from 'youtube-sr';
+import axios from 'axios';
 import { exec } from 'child_process';
 import fs from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+function runCommand(cmd, timeout = 120000) {
+  return new Promise((resolve, reject) => {
+    exec(cmd, { timeout }, (err, stdout, stderr) => {
+      if (err) reject(new Error(stderr || err.message));
+      else resolve(stdout);
+    });
+  });
+}
 
-// Install yt-dlp binary
 async function installYtDlp() {
   const binPath = '/tmp/yt-dlp';
   try {
@@ -25,15 +28,6 @@ async function installYtDlp() {
   }
 }
 
-function runCommand(cmd, timeout = 120000) {
-  return new Promise((resolve, reject) => {
-    exec(cmd, { timeout }, (err, stdout, stderr) => {
-      if (err) reject(new Error(stderr || err.message));
-      else resolve(stdout);
-    });
-  });
-}
-
 export const name = 'play';
 export const category = 'Music';
 export const description = 'Search and download any music in any language';
@@ -41,7 +35,7 @@ export const description = 'Search and download any music in any language';
 export async function execute({ sock, msg, from, args }) {
   if (!args[0]) {
     return await sock.sendMessage(from, {
-      text: `🎵 *SpeedyMD Music*\n\n❌ Please provide a song name!\n\nExamples:\n.play shape of you\n.play figo wa mtaa\n.play burna boy`
+      text: `🎵 *SpeedyMD Music*\n\n❌ Please provide a song name!\n\nExamples:\n.play shape of you\n.play figo wa mtaa\n.play burna boy\n.play diamond platnumz`
     });
   }
 
@@ -55,127 +49,174 @@ export async function execute({ sock, msg, from, args }) {
   const tempFile = `/tmp/audio_${timestamp}`;
 
   try {
-    // Search YouTube
-    const results = await YouTubeSR.YouTube.search(query, {
-      limit: 1,
-      type: 'video',
-    });
-
-    if (!results || results.length === 0) {
-      return await sock.sendMessage(from, {
-        text: `❌ Could not find *${query}*!\n\nTry a different song name.`
-      });
-    }
-
-    const video = results[0];
-    const videoUrl = `https://www.youtube.com/watch?v=${video.id}`;
-    const title = video.title || query;
-    const artist = video.channel?.name || 'Unknown';
-    const duration = video.durationFormatted || '';
-
-    console.log(`🎵 Found: ${title}`);
-
-    await sock.sendMessage(from, {
-      text: `✅ *Found!*\n\n🎵 *${title}*\n👤 *${artist}*\n⏱️ *${duration}*\n\n_Downloading..._ ⚡`
-    });
-
-    // Install yt-dlp
-    const binPath = await installYtDlp();
-    if (!binPath) {
-      return await sock.sendMessage(from, {
-        text: `❌ Download tool failed. Try again!`
-      });
-    }
-
-    // Download with multiple fallback methods
     let audioFile = null;
+    let title = query;
+    let artist = 'Unknown';
+    let duration = '';
 
-    // Method 1: Use android client to bypass bot check
+    // Method 1: SoundCloud search and download
     try {
-      await runCommand(
-        `${binPath} -x --audio-format mp3 --audio-quality 0 \
-        --extractor-args "youtube:player_client=android" \
-        --no-playlist \
-        -o "${tempFile}.%(ext)s" \
-        "${videoUrl}"`,
-        120000
+      console.log('🎵 Trying SoundCloud...');
+
+      // Search SoundCloud
+      const searchRes = await axios.get(
+        `https://api.soundcloud.com/tracks?q=${encodeURIComponent(query)}&client_id=a3e059563d7fd3372b49b37f00a00bcf&limit=1&linked_partitioning=1`,
+        {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          timeout: 15000,
+        }
       );
-      if (fs.existsSync(`${tempFile}.mp3`)) {
+
+      if (searchRes.data?.collection?.[0]) {
+        const track = searchRes.data.collection[0];
+        title = track.title || query;
+        artist = track.user?.username || 'Unknown';
+        duration = track.duration
+          ? `${Math.floor(track.duration / 60000)}:${String(Math.floor((track.duration % 60000) / 1000)).padStart(2, '0')}`
+          : '';
+
+        console.log(`✅ SoundCloud found: ${title}`);
+
+        // Get stream URL
+        const streamUrl = `${track.stream_url}?client_id=a3e059563d7fd3372b49b37f00a00bcf`;
+
+        await sock.sendMessage(from, {
+          text: `✅ *Found on SoundCloud!*\n\n🎵 *${title}*\n👤 *${artist}*\n⏱️ *${duration}*\n\n_Downloading..._ ⚡`
+        });
+
+        // Download audio
+        const audioRes = await axios.get(streamUrl, {
+          responseType: 'arraybuffer',
+          timeout: 120000,
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          maxContentLength: 200 * 1024 * 1024,
+        });
+
         audioFile = `${tempFile}.mp3`;
-        console.log('✅ Method 1 success (android client)');
+        fs.writeFileSync(audioFile, Buffer.from(audioRes.data));
+        console.log('✅ SoundCloud download success!');
       }
-    } catch {
-      console.log('Method 1 failed, trying Method 2...');
+    } catch (err) {
+      console.log('SoundCloud failed:', err.message);
     }
 
-    // Method 2: Use ios client
+    // Method 2: SoundCloud with different client_id
     if (!audioFile) {
       try {
-        await runCommand(
-          `${binPath} -x --audio-format mp3 --audio-quality 0 \
-          --extractor-args "youtube:player_client=ios" \
-          --no-playlist \
-          -o "${tempFile}2.%(ext)s" \
-          "${videoUrl}"`,
-          120000
+        console.log('🎵 Trying SoundCloud API 2...');
+
+        const searchRes = await axios.get(
+          `https://api-v2.soundcloud.com/search/tracks?q=${encodeURIComponent(query)}&client_id=iZIs9mchVcX5lhVRyQGGAYlNPVldzAoX&limit=1`,
+          {
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            timeout: 15000,
+          }
         );
-        if (fs.existsSync(`${tempFile}2.mp3`)) {
-          audioFile = `${tempFile}2.mp3`;
-          console.log('✅ Method 2 success (ios client)');
+
+        if (searchRes.data?.collection?.[0]) {
+          const track = searchRes.data.collection[0];
+          title = track.title || query;
+          artist = track.user?.username || 'Unknown';
+          duration = track.duration
+            ? `${Math.floor(track.duration / 60000)}:${String(Math.floor((track.duration % 60000) / 1000)).padStart(2, '0')}`
+            : '';
+
+          const transcodings = track.media?.transcodings;
+          if (transcodings?.length > 0) {
+            const progressive = transcodings.find(t =>
+              t.format?.protocol === 'progressive'
+            ) || transcodings[0];
+
+            const streamRes = await axios.get(
+              `${progressive.url}?client_id=iZIs9mchVcX5lhVRyQGGAYlNPVldzAoX`,
+              {
+                headers: { 'User-Agent': 'Mozilla/5.0' },
+                timeout: 15000,
+              }
+            );
+
+            if (streamRes.data?.url) {
+              await sock.sendMessage(from, {
+                text: `✅ *Found on SoundCloud!*\n\n🎵 *${title}*\n👤 *${artist}*\n⏱️ *${duration}*\n\n_Downloading..._ ⚡`
+              });
+
+              const audioRes = await axios.get(streamRes.data.url, {
+                responseType: 'arraybuffer',
+                timeout: 120000,
+                headers: { 'User-Agent': 'Mozilla/5.0' },
+                maxContentLength: 200 * 1024 * 1024,
+              });
+
+              audioFile = `${tempFile}.mp3`;
+              fs.writeFileSync(audioFile, Buffer.from(audioRes.data));
+              console.log('✅ SoundCloud API 2 success!');
+            }
+          }
         }
-      } catch {
-        console.log('Method 2 failed, trying Method 3...');
+      } catch (err) {
+        console.log('SoundCloud API 2 failed:', err.message);
       }
     }
 
-    // Method 3: Use tv_embedded client
+    // Method 3: yt-dlp with SoundCloud
     if (!audioFile) {
       try {
-        await runCommand(
-          `${binPath} -x --audio-format mp3 --audio-quality 0 \
-          --extractor-args "youtube:player_client=tv_embedded" \
-          --no-playlist \
-          -o "${tempFile}3.%(ext)s" \
-          "${videoUrl}"`,
-          120000
-        );
-        if (fs.existsSync(`${tempFile}3.mp3`)) {
-          audioFile = `${tempFile}3.mp3`;
-          console.log('✅ Method 3 success (tv_embedded client)');
+        console.log('🎵 Trying yt-dlp SoundCloud...');
+        const binPath = await installYtDlp();
+        if (binPath) {
+          const scUrl = `https://soundcloud.com/search?q=${encodeURIComponent(query)}`;
+          await runCommand(
+            `${binPath} -x --audio-format mp3 --audio-quality 0 \
+            --default-search "scsearch" \
+            --no-playlist \
+            -o "${tempFile}_sc.%(ext)s" \
+            "scsearch1:${query}"`,
+            120000
+          );
+          if (fs.existsSync(`${tempFile}_sc.mp3`)) {
+            audioFile = `${tempFile}_sc.mp3`;
+            console.log('✅ yt-dlp SoundCloud success!');
+          }
         }
-      } catch {
-        console.log('Method 3 failed, trying Method 4...');
+      } catch (err) {
+        console.log('yt-dlp SoundCloud failed:', err.message);
       }
     }
 
-    // Method 4: Use mweb client
+    // Method 4: yt-dlp YouTube android client
     if (!audioFile) {
       try {
-        await runCommand(
-          `${binPath} -x --audio-format mp3 --audio-quality 0 \
-          --extractor-args "youtube:player_client=mweb" \
-          --no-playlist \
-          -o "${tempFile}4.%(ext)s" \
-          "${videoUrl}"`,
-          120000
-        );
-        if (fs.existsSync(`${tempFile}4.mp3`)) {
-          audioFile = `${tempFile}4.mp3`;
-          console.log('✅ Method 4 success (mweb client)');
+        console.log('🎵 Trying yt-dlp YouTube...');
+        const binPath = await installYtDlp();
+        if (binPath) {
+          await runCommand(
+            `${binPath} -x --audio-format mp3 --audio-quality 0 \
+            --extractor-args "youtube:player_client=android,ios" \
+            --default-search "ytsearch" \
+            --no-playlist \
+            -o "${tempFile}_yt.%(ext)s" \
+            "ytsearch1:${query}"`,
+            120000
+          );
+          if (fs.existsSync(`${tempFile}_yt.mp3`)) {
+            audioFile = `${tempFile}_yt.mp3`;
+            console.log('✅ yt-dlp YouTube success!');
+          }
         }
-      } catch {
-        console.log('Method 4 failed...');
+      } catch (err) {
+        console.log('yt-dlp YouTube failed:', err.message);
       }
     }
 
-    if (!audioFile) {
-      throw new Error('All download methods failed');
+    if (!audioFile || !fs.existsSync(audioFile)) {
+      return await sock.sendMessage(from, {
+        text: `❌ *Could not download:* ${query}\n\nPlease try:\n• Different song name\n• Add artist name\n• Try again in 1 minute\n\nExample: *.play Ed Sheeran Perfect*`
+      });
     }
 
     const audioBuffer = fs.readFileSync(audioFile);
-    console.log(`✅ Downloaded ${audioBuffer.length} bytes`);
+    console.log(`✅ Sending ${audioBuffer.length} bytes`);
 
-    // Send audio
     await sock.sendMessage(from, {
       audio: audioBuffer,
       mimetype: 'audio/mpeg',
@@ -188,19 +229,15 @@ export async function execute({ sock, msg, from, args }) {
 
   } catch (err) {
     console.error('❌ Play error:', err.message);
-
-    // Cleanup temp files
     try {
-      [1, 2, 3, 4].forEach(i => {
-        const f = i === 1
-          ? `${tempFile}.mp3`
-          : `/tmp/audio_${timestamp}${i}.mp3`;
+      ['', '_sc', '_yt'].forEach(suffix => {
+        const f = `/tmp/audio_${timestamp}${suffix}.mp3`;
         if (fs.existsSync(f)) fs.unlinkSync(f);
       });
     } catch {}
 
     await sock.sendMessage(from, {
-      text: `❌ *Download failed!*\n\nYouTube is blocking downloads right now.\n\nPlease try again in a few minutes!`
+      text: `❌ *Download failed!*\n\nPlease try again with a different song name.`
     });
   }
 }
