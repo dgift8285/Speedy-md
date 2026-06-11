@@ -21,7 +21,7 @@
     "qrcode": "^1.5.3",
     "socket.io": "^4.6.1",
     "ws": "^8.16.0",
-    "ytdl-core": "^4.11.5",
-    "youtube-sr": "^4.3.11"
+    "youtube-sr": "^4.3.11",
+    "yt-dlp-wrap": "^2.3.12"
   }
 }
