@@ -1,9 +1,12 @@
-import makeWASocket, {
+import baileys from '@whiskeysockets/baileys';
+
+const makeWASocket = baileys.default;
+const {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
-} from '@whiskeysockets/baileys';
+} = baileys;
 import { createClient } from '@supabase/supabase-js';
 import ws from 'ws';
 import AdmZip from 'adm-zip';
