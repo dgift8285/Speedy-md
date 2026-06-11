@@ -8,6 +8,7 @@
     "node": "20.11.1"
   },
   "scripts": {
+    "build": "pip install yt-dlp || true",
     "start": "node --experimental-websocket index.js"
   },
   "dependencies": {
