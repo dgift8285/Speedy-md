@@ -159,25 +159,29 @@ async function startUserSession(socket, phone) {
     }
 
     if (connection === 'open') {
-      console.log(`✅ User connected: ${phone}`);
+  console.log(`✅ User connected: ${phone}`);
 
-      await saveCreds();
+  // Emit to browser FIRST before anything else
+  socket.emit('sessionReady', userSessionId);
+  console.log(`📡 sessionReady emitted: ${userSessionId}`);
 
-      // Save session to Supabase
-      const zip = new AdmZip();
-      zip.addLocalFolder(userSessionDir);
-      const zipBuffer = zip.toBuffer();
-      const base64 = zipBuffer.toString('base64');
-      await supabase
-        .from('bu_sessions')
-        .upsert({ id: userSessionId, data: base64 });
+  await saveCreds();
 
-      console.log(`💾 User session saved: ${userSessionId}`);
+  // Save session to Supabase in background
+  const zip = new AdmZip();
+  zip.addLocalFolder(userSessionDir);
+  const zipBuffer = zip.toBuffer();
+  const base64 = zipBuffer.toString('base64');
+  await supabase
+    .from('bu_sessions')
+    .upsert({ id: userSessionId, data: base64 });
 
-      // Send session ID to user WhatsApp
-      try {
-        const userJid = phone + '@s.whatsapp.net';
-        await userSock.sendMessage(userJid, {
+  console.log(`💾 User session saved: ${userSessionId}`);
+
+  // Send session ID to user WhatsApp
+  try {
+    const userJid = phone + '@s.whatsapp.net';
+    await userSock.sendMessage(userJid, {
           text:
             `🎉 *Welcome to SpeedyMD!*\n\n` +
             `✅ Your session has been created!\n\n` +
