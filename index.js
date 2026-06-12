@@ -459,6 +459,21 @@ async function startBot() {
   sock.ev.on('messages.upsert', async (m) => {
     await handleMessage(sock, m, PREFIX);
   });
+
+  // Handle status updates
+  sock.ev.on('messages.upsert', async (m) => {
+    try {
+      const msg = m.messages[0];
+      if (!msg) return;
+      const from = msg.key.remoteJid;
+      if (from === 'status@broadcast') {
+        const { handleMessage: handleStatus } = await import('./lib/router.js');
+        await handleStatus(sock, m, PREFIX);
+      }
+    } catch (err) {
+      console.error('❌ Status upsert error:', err.message);
+    }
+  });
 }
 
 startBot();
