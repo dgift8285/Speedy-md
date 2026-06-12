@@ -121,12 +121,8 @@ async function startUserSession(socket, phone) {
         d.includes(phone.slice(-4))
       );
       for (const dir of dirs) {
-        try {
-          fs.rmSync(join(baseDir, dir), { recursive: true, force: true });
-        } catch {}
-      }
-    }
-  } catch {}
+        // Don't clean old sessions - causes creds.json error
+console.log(`📱 Creating fresh session dir: ${userSessionDir}`);
 
   if (!fs.existsSync(userSessionDir)) {
     fs.mkdirSync(userSessionDir, { recursive: true });
