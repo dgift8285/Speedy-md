@@ -347,6 +347,7 @@ async function startBot() {
     browser: [BOT_NAME, 'Chrome', '1.0.0'],
     connectTimeoutMs: 60000,
     keepAliveIntervalMs: 10000,
+    shouldIgnoreJid: jid => false,
   });
 
   io.on('connection', (socket) => {
