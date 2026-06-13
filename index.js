@@ -6,7 +6,13 @@ const {
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
 } = baileys;
-
+// Clean JID helper
+function cleanJid(jid) {
+  if (!jid) return null;
+  return jid.includes(':')
+    ? jid.split(':')[0] + '@s.whatsapp.net'
+    : jid;
+}
 import { createClient } from '@supabase/supabase-js';
 import ws from 'ws';
 import AdmZip from 'adm-zip';
