@@ -76,10 +76,17 @@ export async function execute({ sock, msg, from, PREFIX, getAllCommands }) {
 
   let imageBuffer = null;
 
-  // Try to get bot profile picture
+  // Try to get bot's OWN profile picture
   try {
+    // Get bot's own JID correctly
+    const botJid = sock.user.id.includes(':')
+      ? sock.user.id.split(':')[0] + '@s.whatsapp.net'
+      : sock.user.id;
+
+    console.log('🤖 Getting bot profile pic for JID:', botJid);
+
     const profilePicUrl = await sock.profilePictureUrl(
-      sock.user.id,
+      botJid,
       'image'
     );
     if (profilePicUrl) {
