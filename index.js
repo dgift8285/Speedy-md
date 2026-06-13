@@ -493,5 +493,13 @@ async function startBot() {
     }
   });
 }
+// Catch all unhandled errors
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err.message);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('❌ Unhandled Rejection:', err?.message || err);
+});
 
 startBot();
