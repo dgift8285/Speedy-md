@@ -1,5 +1,4 @@
 import fs from 'fs';
-import https from 'https';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -9,18 +8,6 @@ const __dirname = dirname(__filename);
 export const name = 'menu';
 export const category = 'General';
 export const description = 'Shows all available commands';
-
-// Download image from URL
-function downloadImage(url) {
-  return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
-      const chunks = [];
-      res.on('data', chunk => chunks.push(chunk));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-      res.on('error', reject);
-    }).on('error', reject);
-  });
-}
 
 export async function execute({ sock, msg, from, PREFIX, getAllCommands }) {
   const commands = getAllCommands ? getAllCommands() : new Map();
@@ -74,43 +61,29 @@ export async function execute({ sock, msg, from, PREFIX, getAllCommands }) {
   menu += `▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n`;
   menu += `     ⚡ _SwiftBot Tec_ 🚀`;
 
+  // Check for custom btp image first
+  const btpPath = join(__dirname, '../btp_image.jpg');
+  const logoPath = join(__dirname, '../botlogo.jpg');
+
   let imageBuffer = null;
 
-  // Try to get bot's OWN profile picture
-  try {
-    // Get bot's own JID correctly
-    const botJid = sock.user.id.includes(':')
-      ? sock.user.id.split(':')[0] + '@s.whatsapp.net'
-      : sock.user.id;
-
-    console.log('🤖 Getting bot profile pic for JID:', botJid);
-
-    const profilePicUrl = await sock.profilePictureUrl(
-      botJid,
-      'image'
-    );
-    if (profilePicUrl) {
-      imageBuffer = await downloadImage(profilePicUrl);
-      console.log('🖼️ Got bot profile picture for menu');
-    }
-  } catch {
-    console.log('⚠️ Could not get profile picture, trying local...');
-  }
-
-  // Fallback to local botlogo.jpg
-  if (!imageBuffer) {
+  // Use btp image if set
+  if (fs.existsSync(btpPath)) {
     try {
-      const imgPath = join(__dirname, '../botlogo.jpg');
-      if (fs.existsSync(imgPath)) {
-        imageBuffer = fs.readFileSync(imgPath);
-        console.log('🖼️ Using local botlogo.jpg for menu');
-      }
-    } catch {
-      console.log('⚠️ No local image found');
-    }
+      imageBuffer = fs.readFileSync(btpPath);
+      console.log('🖼️ Using custom btp image for menu');
+    } catch {}
   }
 
-  // Send with image or text only
+  // Fallback to botlogo.jpg
+  if (!imageBuffer && fs.existsSync(logoPath)) {
+    try {
+      imageBuffer = fs.readFileSync(logoPath);
+      console.log('🖼️ Using botlogo.jpg for menu');
+    } catch {}
+  }
+
+  // Send with image or text
   if (imageBuffer) {
     await sock.sendMessage(from, {
       image: imageBuffer,
