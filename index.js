@@ -48,9 +48,27 @@ app.get('/', (req, res) => {
   res.json({
     status: 'online',
     bot: BOT_NAME,
-    message: 'SpeedyMD is running! ⚡'
+    message: 'SpeedyMD is running! ⚡',
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    timestamp: new Date().toISOString(),
   });
 });
+
+// Keep alive endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// Self ping every 4 minutes
+setInterval(async () => {
+  try {
+    const { default: https } = await import('https');
+    https.get('https://speedy-md.onrender.com/health', (res) => {
+      console.log('🏓 Self ping:', res.statusCode);
+    }).on('error', () => {});
+  } catch {}
+}, 4 * 60 * 1000);
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
