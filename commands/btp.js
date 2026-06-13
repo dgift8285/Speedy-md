@@ -6,16 +6,6 @@ export const description = 'Set bot profile picture';
 
 export async function execute({ sock, msg, from, sender, isGroup }) {
   try {
-    // Check if owner only
-    const ownerJid = process.env.OWNER_NUMBER + '@s.whatsapp.net';
-    const senderJid = isGroup ? msg.key.participant : msg.key.remoteJid;
-
-    if (senderJid !== ownerJid) {
-      return await sock.sendMessage(from, {
-        text: `❌ *Only owner can change bot profile picture!*`,
-      }, { quoted: msg });
-    }
-
     // Check if replying to image
     const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
     const quotedMsg = contextInfo?.quotedMessage;
@@ -41,7 +31,7 @@ export async function execute({ sock, msg, from, sender, isGroup }) {
 
     if (!imageMessage) {
       return await sock.sendMessage(from, {
-        text: `❌ *Please reply to an image!*\n\nOnly images are supported for profile picture.`,
+        text: `❌ *Please reply to an image!*\n\nOnly images are supported.`,
       }, { quoted: msg });
     }
 
@@ -78,14 +68,13 @@ export async function execute({ sock, msg, from, sender, isGroup }) {
       throw new Error('Could not download image');
     }
 
-    console.log(`🖼️ Downloaded image: ${buffer.length} bytes`);
+    console.log(`🖼️ Downloaded: ${buffer.length} bytes`);
 
     // Set profile picture
     await sock.updateProfilePicture(sock.user.id, buffer);
+    console.log('✅ Profile picture updated!');
 
-    console.log('✅ Bot profile picture updated!');
-
-    // React with success
+    // React success
     await sock.sendMessage(from, {
       react: { text: '✅', key: msg.key },
     });
@@ -102,7 +91,7 @@ export async function execute({ sock, msg, from, sender, isGroup }) {
     });
 
     await sock.sendMessage(from, {
-      text: `❌ *Failed to update profile picture!*\n\n_${err.message}_\n\nPlease try again!`,
+      text: `❌ *Failed!*\n\n_${err.message}_\n\nPlease try again!`,
     }, { quoted: msg });
   }
 }
