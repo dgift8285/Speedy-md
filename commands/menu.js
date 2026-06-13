@@ -1,3 +1,10 @@
+import fs from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 export const name = 'menu';
 export const category = 'General';
 export const description = 'Shows all available commands';
@@ -36,8 +43,6 @@ export async function execute({ sock, msg, from, PREFIX, getAllCommands }) {
 
   for (const [category, cmds] of Object.entries(categories)) {
     menu += `⫸ *${category.toUpperCase()}*\n`;
-
-    // Display commands in pairs
     const cmdNames = cmds.map(c => `⦿ ${PREFIX}${c.name}`);
     for (let i = 0; i < cmdNames.length; i += 2) {
       if (cmdNames[i + 1]) {
@@ -56,5 +61,45 @@ export async function execute({ sock, msg, from, PREFIX, getAllCommands }) {
   menu += `▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n`;
   menu += `     ⚡ _SwiftBot Tec_ 🚀`;
 
+  // Try to get bot profile picture
+  try {
+    const profilePic = await sock.profilePictureUrl(sock.user.id, 'image');
+
+    if (profilePic) {
+      // Download profile picture
+      const { default: axios } = await import('axios');
+      const response = await axios.get(profilePic, {
+        responseType: 'arraybuffer',
+        timeout: 10000,
+      });
+      const imageBuffer = Buffer.from(response.data);
+
+      // Send menu with profile picture
+      await sock.sendMessage(from, {
+        image: imageBuffer,
+        caption: menu,
+      }, { quoted: msg });
+      return;
+    }
+  } catch {
+    // Profile picture not available fallback to text
+  }
+
+  // Fallback: check local botlogo.jpg
+  try {
+    const imgPath = join(__dirname, '../botlogo.jpg');
+    if (fs.existsSync(imgPath)) {
+      const imageBuffer = fs.readFileSync(imgPath);
+      await sock.sendMessage(from, {
+        image: imageBuffer,
+        caption: menu,
+      }, { quoted: msg });
+      return;
+    }
+  } catch {
+    // Local image not available
+  }
+
+  // Final fallback: send text only
   await sock.sendMessage(from, { text: menu });
 }
