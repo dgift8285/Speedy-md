@@ -1,4 +1,5 @@
 import fs from 'fs';
+import https from 'https';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -8,6 +9,18 @@ const __dirname = dirname(__filename);
 export const name = 'menu';
 export const category = 'General';
 export const description = 'Shows all available commands';
+
+// Download image from URL
+function downloadImage(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
 
 export async function execute({ sock, msg, from, PREFIX, getAllCommands }) {
   const commands = getAllCommands ? getAllCommands() : new Map();
@@ -61,45 +74,45 @@ export async function execute({ sock, msg, from, PREFIX, getAllCommands }) {
   menu += `▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n`;
   menu += `     ⚡ _SwiftBot Tec_ 🚀`;
 
+  let imageBuffer = null;
+
   // Try to get bot profile picture
   try {
-    const profilePic = await sock.profilePictureUrl(sock.user.id, 'image');
-
-    if (profilePic) {
-      // Download profile picture
-      const { default: axios } = await import('axios');
-      const response = await axios.get(profilePic, {
-        responseType: 'arraybuffer',
-        timeout: 10000,
-      });
-      const imageBuffer = Buffer.from(response.data);
-
-      // Send menu with profile picture
-      await sock.sendMessage(from, {
-        image: imageBuffer,
-        caption: menu,
-      }, { quoted: msg });
-      return;
+    const profilePicUrl = await sock.profilePictureUrl(
+      sock.user.id,
+      'image'
+    );
+    if (profilePicUrl) {
+      imageBuffer = await downloadImage(profilePicUrl);
+      console.log('🖼️ Got bot profile picture for menu');
     }
   } catch {
-    // Profile picture not available fallback to text
+    console.log('⚠️ Could not get profile picture, trying local...');
   }
 
-  // Fallback: check local botlogo.jpg
-  try {
-    const imgPath = join(__dirname, '../botlogo.jpg');
-    if (fs.existsSync(imgPath)) {
-      const imageBuffer = fs.readFileSync(imgPath);
-      await sock.sendMessage(from, {
-        image: imageBuffer,
-        caption: menu,
-      }, { quoted: msg });
-      return;
+  // Fallback to local botlogo.jpg
+  if (!imageBuffer) {
+    try {
+      const imgPath = join(__dirname, '../botlogo.jpg');
+      if (fs.existsSync(imgPath)) {
+        imageBuffer = fs.readFileSync(imgPath);
+        console.log('🖼️ Using local botlogo.jpg for menu');
+      }
+    } catch {
+      console.log('⚠️ No local image found');
     }
-  } catch {
-    // Local image not available
   }
 
-  // Final fallback: send text only
-  await sock.sendMessage(from, { text: menu });
+  // Send with image or text only
+  if (imageBuffer) {
+    await sock.sendMessage(from, {
+      image: imageBuffer,
+      caption: menu,
+      mimetype: 'image/jpeg',
+    }, { quoted: msg });
+  } else {
+    await sock.sendMessage(from, {
+      text: menu,
+    }, { quoted: msg });
+  }
 }
