@@ -474,8 +474,50 @@ async function startBot() {
     await syncToSupabase(SESSION_ID, SESSION_DIR);
   });
 
-  sock.ev.on('messages.upsert', async (m) => {
-    await handleMessage(sock, m, PREFIX);
+  // Auto promote bot when added to group
+  sock.ev.on('group-participants.update', async (update) => {
+    try {
+      const { id, participants, action } = update;
+
+      if (action === 'add') {
+        const botJid = cleanJid(sock.user.id);
+        const wasAdded = participants.some(p => cleanJid(p) === botJid);
+
+        if (wasAdded) {
+          console.log(`✅ Bot added to group: ${id}`);
+
+          // Send greeting
+          await sock.sendMessage(id, {
+            text:
+              `👋 *Hello everyone!*\n\n` +
+              `⚡ *SpeedyMD* is here!\n\n` +
+              `📋 Type *${PREFIX}menu* to see all commands\n\n` +
+              `⚠️ *Please make me admin* to use group commands!\n\n` +
+              `_Powered by SwiftBot Tec_ 🚀`
+          });
+        }
+      }
+
+      // When bot is promoted to admin
+      if (action === 'promote') {
+        const botJid = cleanJid(sock.user.id);
+        const botPromoted = participants.some(p => cleanJid(p) === botJid);
+
+        if (botPromoted) {
+          console.log(`👑 Bot promoted to admin in: ${id}`);
+          await sock.sendMessage(id, {
+            text:
+              `✅ *Thanks for making me admin!*\n\n` +
+              `👑 I now have full access to group commands!\n\n` +
+              `📋 Type *${PREFIX}menu* to see all commands\n\n` +
+              `_Powered by SpeedyMD_ ⚡`
+          });
+        }
+      }
+
+    } catch (err) {
+      console.error('❌ Group update error:', err.message);
+    }
   });
 
   // Handle status updates
