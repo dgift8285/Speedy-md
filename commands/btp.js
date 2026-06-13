@@ -1,4 +1,10 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
+import fs from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export const name = 'btp';
 export const category = 'General';
@@ -31,11 +37,11 @@ export async function execute({ sock, msg, from, sender, isGroup }) {
 
     if (!imageMessage) {
       return await sock.sendMessage(from, {
-        text: `❌ *Please reply to an image!*\n\nOnly images are supported.`,
+        text: `❌ *Please reply to an image!*`,
       }, { quoted: msg });
     }
 
-    // React first
+    // React loading
     await sock.sendMessage(from, {
       react: { text: '⏳', key: msg.key },
     });
@@ -70,9 +76,18 @@ export async function execute({ sock, msg, from, sender, isGroup }) {
 
     console.log(`🖼️ Downloaded: ${buffer.length} bytes`);
 
-    // Set profile picture
-    await sock.updateProfilePicture(sock.user.id, buffer);
-    console.log('✅ Profile picture updated!');
+    // Save as btp_image.jpg for menu
+    const btpPath = join(__dirname, '../btp_image.jpg');
+    fs.writeFileSync(btpPath, buffer);
+    console.log('💾 Saved btp_image.jpg');
+
+    // Set bot profile picture on WhatsApp
+    try {
+      await sock.updateProfilePicture(sock.user.id, buffer);
+      console.log('✅ WhatsApp profile picture updated!');
+    } catch (err) {
+      console.log('⚠️ Could not update WhatsApp pic:', err.message);
+    }
 
     // React success
     await sock.sendMessage(from, {
@@ -80,7 +95,10 @@ export async function execute({ sock, msg, from, sender, isGroup }) {
     });
 
     await sock.sendMessage(from, {
-      text: `✅ *Bot profile picture updated!* ⚡\n\n_Powered by SpeedyMD_ 🚀`,
+      text:
+        `✅ *Bot profile picture updated!*\n\n` +
+        `🖼️ New picture will show in *.menu*\n\n` +
+        `_Powered by SpeedyMD_ ⚡`,
     }, { quoted: msg });
 
   } catch (err) {
@@ -91,7 +109,7 @@ export async function execute({ sock, msg, from, sender, isGroup }) {
     });
 
     await sock.sendMessage(from, {
-      text: `❌ *Failed!*\n\n_${err.message}_\n\nPlease try again!`,
+      text: `❌ *Failed!*\n\n_${err.message}_`,
     }, { quoted: msg });
   }
 }
