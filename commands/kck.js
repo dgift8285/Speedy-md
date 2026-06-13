@@ -2,7 +2,7 @@ export const name = 'kck';
 export const category = 'Group';
 export const description = 'Kick a member from the group';
 
-export async function execute({ sock, msg, from, args, isGroup, isBotAdmin, isAdmin, groupMetadata }) {
+export async function execute({ sock, msg, from, args, isGroup, isBotAdmin, isAdmin, groupMetadata, sender }) {
   try {
     // Only works in groups
     if (!isGroup) {
@@ -21,28 +21,32 @@ export async function execute({ sock, msg, from, args, isGroup, isBotAdmin, isAd
     // Check if bot is admin
     if (!isBotAdmin) {
       return await sock.sendMessage(from, {
-        text: `❌ *Bot must be admin to kick members!*\n\nPlease make bot admin first.`,
+        text:
+          `❌ *Bot must be admin to kick!*\n\n` +
+          `Please make me admin first.`,
       }, { quoted: msg });
     }
 
-    // Get target from reply or mention
+    // Get target member
     let target = null;
 
-    // Check if replying to a message
+    // Method 1: Reply to message
     const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
     if (contextInfo?.participant) {
       target = contextInfo.participant;
     }
 
-    // Check mentions
-    if (!target && contextInfo?.mentionedJid?.[0]) {
+    // Method 2: Mention
+    if (!target && contextInfo?.mentionedJid?.length > 0) {
       target = contextInfo.mentionedJid[0];
     }
 
-    // Check args for number
+    // Method 3: Number in args
     if (!target && args[0]) {
       const num = args[0].replace(/[^0-9]/g, '');
-      if (num) target = num + '@s.whatsapp.net';
+      if (num.length > 5) {
+        target = num + '@s.whatsapp.net';
+      }
     }
 
     if (!target) {
@@ -51,13 +55,29 @@ export async function execute({ sock, msg, from, args, isGroup, isBotAdmin, isAd
           `❌ *Please specify who to kick!*\n\n` +
           `How to use:\n` +
           `▸ Reply to their message + *.kck*\n` +
-          `▸ Mention them: *.kck @member*\n` +
-          `▸ Use number: *.kck 254xxxxxxx*`,
+          `▸ *.kck @member*\n` +
+          `▸ *.kck 254xxxxxxx*`,
       }, { quoted: msg });
     }
 
+    // Fix target JID format
+    if (!target.includes('@')) {
+      target = target + '@s.whatsapp.net';
+    }
+
     // Can't kick yourself
-    const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+    const senderClean = sender?.split('@')[0] + '@s.whatsapp.net';
+    if (target === senderClean) {
+      return await sock.sendMessage(from, {
+        text: `❌ *You cannot kick yourself!*`,
+      }, { quoted: msg });
+    }
+
+    // Can't kick bot
+    const botJid = sock.user.id.includes(':')
+      ? sock.user.id.split(':')[0] + '@s.whatsapp.net'
+      : sock.user.id;
+
     if (target === botJid) {
       return await sock.sendMessage(from, {
         text: `❌ *I cannot kick myself!*`,
@@ -65,22 +85,32 @@ export async function execute({ sock, msg, from, args, isGroup, isBotAdmin, isAd
     }
 
     // Check if target is admin
-    const targetParticipant = groupMetadata?.participants?.find(
-      p => p.id === target
-    );
+    const targetParticipant = groupMetadata?.participants?.find(p => {
+      const pid = p.id.includes(':')
+        ? p.id.split(':')[0] + '@s.whatsapp.net'
+        : p.id;
+      return pid === target;
+    });
 
     if (targetParticipant?.admin) {
       return await sock.sendMessage(from, {
-        text: `❌ *Cannot kick an admin!*\n\nDemote them first then kick.`,
+        text:
+          `❌ *Cannot kick an admin!*\n\n` +
+          `Demote them first then kick.`,
       }, { quoted: msg });
     }
 
-    // Get target name
+    // Check if target is in group
+    if (!targetParticipant) {
+      return await sock.sendMessage(from, {
+        text: `❌ *That person is not in this group!*`,
+      }, { quoted: msg });
+    }
+
     const targetName = target.split('@')[0];
 
     // Kick member
     await sock.groupParticipantsUpdate(from, [target], 'remove');
-
     console.log(`✅ Kicked ${target} from ${from}`);
 
     await sock.sendMessage(from, {
