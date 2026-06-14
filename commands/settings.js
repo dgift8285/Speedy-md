@@ -1,6 +1,6 @@
 import { getValue, setValue } from '../lib/state.js';
 
-export const name = ['settings', 'config'];
+export const name = ['settings', 'config', 'set'];
 export const category = 'General';
 export const description = 'View and toggle bot settings';
 
