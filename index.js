@@ -7,38 +7,30 @@ const {
   makeCacheableSignalKeyStore,
 } = baileys;
 
-// Clean JID helper
+import { createClient } from '@supabase/supabase-js';
+import ws from 'ws';
+import AdmZip from 'adm-zip';
+import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import fs from 'fs';
+import dotenv from 'dotenv';
+import pino from 'pino';
+import { handleMessage } from './lib/router.js';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 function cleanJid(jid) {
   if (!jid) return null;
   return jid.includes(':')
     ? jid.split(':')[0] + '@s.whatsapp.net'
     : jid;
 }
-
-import dotenv from 'dotenv';
-import { startBot } from './lib/bot-manager.js';
-
-dotenv.config();
-
-// Validate required environment variables
-const required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'OWNER_NUMBER'];
-for (const key of required) {
-  if (!process.env[key]) {
-    console.error(`❌ Missing required env var: ${key}`);
-    process.exit(1);
-  }
-}
-
-console.log('🚀 Starting SpeedyMD v1.2.0...');
-startBot().catch(err => {
-  console.error('💥 Fatal startup error:', err);
-  process.exit(1);
-});
-
-dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -65,39 +57,28 @@ app.get('/', (req, res) => {
     bot: BOT_NAME,
     message: 'SpeedyMD is running! ⚡',
     uptime: process.uptime(),
-    memory: process.memoryUsage(),
     timestamp: new Date().toISOString(),
   });
 });
 
-// Keep alive endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
-
-// Self ping every 4 minutes
-setInterval(async () => {
-  try {
-    const { default: https } = await import('https');
-    https.get('https://speedy-md.onrender.com/health', (res) => {
-      console.log('🏓 Self ping:', res.statusCode);
-    }).on('error', () => {});
-  } catch {}
-}, 4 * 60 * 1000);
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`🌐 Server running on port ${PORT}`);
 });
 
-const activeBots = new Map();
-
-function generateSessionId(phone) {
-  const timestamp = Date.now().toString(36).toUpperCase();
-  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-  const phoneEnd = phone.slice(-4);
-  return `SPEEDY_${phoneEnd}_${timestamp}_${random}`;
-}
+// Self ping every 4 minutes to stay awake
+setInterval(async () => {
+  try {
+    const https = await import('https');
+    https.default.get('https://speedy-md.onrender.com/health', (res) => {
+      console.log('🏓 Self ping:', res.statusCode);
+    }).on('error', () => {});
+  } catch {}
+}, 4 * 60 * 1000);
 
 async function syncToSupabase(sessionId, sessionDir) {
   try {
@@ -132,228 +113,6 @@ async function loadFromSupabase(sessionId, sessionDir) {
   }
 }
 
-async function startUserSession(socket, phone) {
-  const userSessionId = generateSessionId(phone);
-  const userSessionDir = join(__dirname, `user_sessions/${userSessionId}`);
-  console.log(`📱 Starting user session for ${phone}`);
-
-  if (!fs.existsSync(userSessionDir)) {
-    fs.mkdirSync(userSessionDir, { recursive: true });
-  }
-
-  const { state, saveCreds } = await useMultiFileAuthState(userSessionDir);
-  const { version } = await fetchLatestBaileysVersion();
-
-  const userSock = makeWASocket({
-    version,
-    auth: {
-      creds: state.creds,
-      keys: makeCacheableSignalKeyStore(
-        state.keys,
-        pino({ level: 'silent' })
-      ),
-    },
-    printQRInTerminal: false,
-    syncFullHistory: false,
-    fireInitQueries: false,
-    logger: pino({ level: 'silent' }),
-    browser: ['SpeedyMD-Pair', 'Safari', '1.0.0'],
-    connectTimeoutMs: 60000,
-    keepAliveIntervalMs: 10000,
-  });
-
-  socket.on('requestPairCode', async (userPhone) => {
-    try {
-      const code = await userSock.requestPairingCode(userPhone);
-      const formatted = code?.match(/.{1,4}/g)?.join('-') || code;
-      console.log(`📲 Pair code: ${formatted}`);
-      socket.emit('pairCode', formatted);
-    } catch (err) {
-      socket.emit('pairError', err.message);
-    }
-  });
-
-  userSock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
-
-    if (qr) {
-      socket.emit('qr', qr);
-      console.log(`📱 QR for ${phone}`);
-    }
-
-    if (connection === 'open') {
-      console.log(`✅ User connected: ${phone}`);
-
-      // Step 1: Send session ID to WhatsApp FIRST
-      try {
-        const userJid = phone + '@s.whatsapp.net';
-        await userSock.sendMessage(userJid, {
-          text:
-            `🎉 *Welcome to SpeedyMD!*\n\n` +
-            `✅ Session created successfully!\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━━\n` +
-            `🔑 *Your Session ID:*\n` +
-            `\`\`\`${userSessionId}\`\`\`\n` +
-            `━━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `⚡ Go back to the website\n` +
-            `and click *Deploy Bot!*\n\n` +
-            `📢 *Follow our channel:*\n` +
-            `${CHANNEL_LINK}\n\n` +
-            `_Powered by SwiftBot Tec_ ⚡`
-        });
-        console.log(`✅ Session ID sent to ${phone}`);
-      } catch (err) {
-        console.error('❌ Send error:', err.message);
-      }
-
-      // Step 2: Notify browser
-      socket.emit('sessionReady', userSessionId);
-      console.log(`📡 sessionReady emitted: ${userSessionId}`);
-
-      // Step 3: Save creds
-      await saveCreds();
-
-      // Step 4: Save to Supabase
-      try {
-        await syncToSupabase(userSessionId, userSessionDir);
-      } catch (err) {
-        console.error('❌ Save error:', err.message);
-      }
-
-      // Step 5: Clean up after 30 seconds
-      setTimeout(async () => {
-        try { userSock.end(); } catch {}
-        try {
-          fs.rmSync(userSessionDir, { recursive: true, force: true });
-          console.log(`🗑️ Pair session cleaned`);
-        } catch {}
-      }, 30000);
-    }
-
-    if (connection === 'close') {
-      const reason = lastDisconnect?.error?.output?.statusCode;
-      console.log(`🔴 User session closed: ${phone}, reason: ${reason}`);
-      if (reason === 515 || reason === 408) return;
-      socket.emit('sessionError', 'Connection failed. Please try again.');
-    }
-  });
-
-  userSock.ev.on('creds.update', saveCreds);
-}
-
-async function deployUserBot(socket, phone, sessionId) {
-  try {
-    console.log(`🚀 Deploying bot for ${phone}`);
-
-    if (activeBots.has(sessionId)) {
-      socket.emit('botDeployed', { sessionId, phone });
-      return;
-    }
-
-    const userSessionDir = join(__dirname, `running_bots/${sessionId}`);
-    if (!fs.existsSync(userSessionDir)) {
-      fs.mkdirSync(userSessionDir, { recursive: true });
-    }
-
-    const loaded = await loadFromSupabase(sessionId, userSessionDir);
-    if (!loaded) {
-      socket.emit('deployError', 'Session not found! Please get a new Session ID.');
-      return;
-    }
-
-    const { state, saveCreds } = await useMultiFileAuthState(userSessionDir);
-    const { version } = await fetchLatestBaileysVersion();
-
-    const userSock = makeWASocket({
-      version,
-      auth: {
-        creds: state.creds,
-        keys: makeCacheableSignalKeyStore(
-          state.keys,
-          pino({ level: 'silent' })
-        ),
-      },
-      printQRInTerminal: false,
-      syncFullHistory: false,
-      fireInitQueries: false,
-      logger: pino({ level: 'silent' }),
-      browser: ['SpeedyMD-Bot', 'Chrome', '1.0.0'],
-      connectTimeoutMs: 60000,
-      keepAliveIntervalMs: 10000,
-    });
-
-    activeBots.set(sessionId, userSock);
-
-    userSock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect } = update;
-
-      if (connection === 'open') {
-        console.log(`✅ User bot live: ${phone}`);
-        socket.emit('botDeployed', { sessionId, phone });
-
-        try {
-          const userJid = phone + '@s.whatsapp.net';
-          await userSock.sendMessage(userJid, {
-            text:
-              `🎉 *Your SpeedyMD Bot is LIVE!*\n\n` +
-              `✅ Bot is now running!\n\n` +
-              `🤖 *Bot:* SpeedyMD\n` +
-              `📱 *Number:* +${phone}\n` +
-              `⚡ *Prefix:* ${PREFIX}\n\n` +
-              `📋 *Commands:*\n` +
-              `▸ ${PREFIX}menu\n` +
-              `▸ ${PREFIX}ping\n` +
-              `▸ ${PREFIX}alive\n` +
-              `▸ ${PREFIX}play\n` +
-              `▸ ${PREFIX}tt\n\n` +
-              `📢 *Follow our channel:*\n` +
-              `${CHANNEL_LINK}\n\n` +
-              `_Powered by SwiftBot Tec_ ⚡`
-          });
-        } catch (err) {
-          console.error('❌ Deploy message error:', err.message);
-        }
-
-        setInterval(async () => {
-          await syncToSupabase(sessionId, userSessionDir);
-        }, 5 * 60 * 1000);
-      }
-
-      if (connection === 'close') {
-        const reason = lastDisconnect?.error?.output?.statusCode;
-        console.log(`🔴 User bot closed: ${phone}, reason: ${reason}`);
-        activeBots.delete(sessionId);
-
-        if (reason !== DisconnectReason.loggedOut) {
-          setTimeout(() => deployUserBot(socket, phone, sessionId), 5000);
-        } else {
-          try {
-            fs.rmSync(userSessionDir, { recursive: true, force: true });
-          } catch {}
-          await supabase
-            .from('bu_sessions')
-            .delete()
-            .eq('id', sessionId);
-        }
-      }
-    });
-
-    userSock.ev.on('creds.update', async () => {
-      await saveCreds();
-      await syncToSupabase(sessionId, userSessionDir);
-    });
-
-    userSock.ev.on('messages.upsert', async (m) => {
-      await handleMessage(userSock, m, PREFIX);
-    });
-
-  } catch (err) {
-    console.error('❌ Deploy error:', err.message);
-    activeBots.delete(sessionId);
-    socket.emit('deployError', err.message);
-  }
-}
-
 async function startBot() {
   if (!fs.existsSync(SESSION_DIR)) {
     fs.mkdirSync(SESSION_DIR, { recursive: true });
@@ -380,31 +139,10 @@ async function startBot() {
     browser: [BOT_NAME, 'Chrome', '1.0.0'],
     connectTimeoutMs: 60000,
     keepAliveIntervalMs: 10000,
-    shouldIgnoreJid: jid => false,
   });
 
   io.on('connection', (socket) => {
     console.log('🌐 Browser connected');
-
-    socket.on('startSession', async (phone) => {
-      try {
-        console.log(`📱 startSession for: ${phone}`);
-        await startUserSession(socket, phone);
-      } catch (err) {
-        console.error('❌ Session error:', err.message);
-        socket.emit('sessionError', err.message);
-      }
-    });
-
-    socket.on('deployBot', async ({ sessionId, phone }) => {
-      try {
-        console.log(`🚀 deployBot for: ${phone}`);
-        await deployUserBot(socket, phone, sessionId);
-      } catch (err) {
-        console.error('❌ Deploy error:', err.message);
-        socket.emit('deployError', err.message);
-      }
-    });
 
     socket.on('requestPairCode', async (phone) => {
       try {
@@ -484,24 +222,16 @@ async function startBot() {
     }
   });
 
-  sock.ev.on('creds.update', async () => {
-    await saveCreds();
-    await syncToSupabase(SESSION_ID, SESSION_DIR);
-  });
-
-  // Auto promote bot when added to group
+  // Auto greet when bot is added to a group
   sock.ev.on('group-participants.update', async (update) => {
     try {
       const { id, participants, action } = update;
+      const botJid = cleanJid(sock.user.id);
 
       if (action === 'add') {
-        const botJid = cleanJid(sock.user.id);
         const wasAdded = participants.some(p => cleanJid(p) === botJid);
-
         if (wasAdded) {
           console.log(`✅ Bot added to group: ${id}`);
-
-          // Send greeting
           await sock.sendMessage(id, {
             text:
               `👋 *Hello everyone!*\n\n` +
@@ -513,11 +243,8 @@ async function startBot() {
         }
       }
 
-      // When bot is promoted to admin
       if (action === 'promote') {
-        const botJid = cleanJid(sock.user.id);
         const botPromoted = participants.some(p => cleanJid(p) === botJid);
-
         if (botPromoted) {
           console.log(`👑 Bot promoted to admin in: ${id}`);
           await sock.sendMessage(id, {
@@ -529,28 +256,21 @@ async function startBot() {
           });
         }
       }
-
     } catch (err) {
       console.error('❌ Group update error:', err.message);
     }
   });
 
-  // Handle status updates
+  sock.ev.on('creds.update', async () => {
+    await saveCreds();
+    await syncToSupabase(SESSION_ID, SESSION_DIR);
+  });
+
   sock.ev.on('messages.upsert', async (m) => {
-    try {
-      const msg = m.messages[0];
-      if (!msg) return;
-      const from = msg.key.remoteJid;
-      if (from === 'status@broadcast') {
-        const { handleMessage: handleStatus } = await import('./lib/router.js');
-        await handleStatus(sock, m, PREFIX);
-      }
-    } catch (err) {
-      console.error('❌ Status upsert error:', err.message);
-    }
+    await handleMessage(sock, m, PREFIX);
   });
 }
-// Catch all unhandled errors
+
 process.on('uncaughtException', (err) => {
   console.error('❌ Uncaught Exception:', err.message);
 });
