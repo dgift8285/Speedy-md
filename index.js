@@ -11,20 +11,26 @@ function cleanJid(jid) {
   if (!jid) return null;
   return jid.includes(':')
     ? jid.split(':')[0] + '@s.whatsapp.net'
-    : jid;
-}
-import { createClient } from '@supabase/supabase-js';
-import ws from 'ws';
-import AdmZip from 'adm-zip';
-import express from 'express';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import fs from 'fs';
+    : jid
 import dotenv from 'dotenv';
-import pino from 'pino';
-import { handleMessage } from './lib/router.js';
+import { startBot } from './lib/bot-manager.js';
+
+dotenv.config();
+
+// Validate required environment variables
+const required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'OWNER_NUMBER'];
+for (const key of required) {
+  if (!process.env[key]) {
+    console.error(`❌ Missing required env var: ${key}`);
+    process.exit(1);
+  }
+}
+
+console.log('🚀 Starting SpeedyMD v1.2.0...');
+startBot().catch(err => {
+  console.error('💥 Fatal startup error:', err);
+  process.exit(1);
+});
 
 dotenv.config();
 
