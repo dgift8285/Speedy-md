@@ -6,12 +6,15 @@ const {
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
 } = baileys;
+
 // Clean JID helper
 function cleanJid(jid) {
   if (!jid) return null;
   return jid.includes(':')
     ? jid.split(':')[0] + '@s.whatsapp.net'
-    : jid
+    : jid;
+}
+
 import dotenv from 'dotenv';
 import { startBot } from './lib/bot-manager.js';
 
