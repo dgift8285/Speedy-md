@@ -1,5 +1,23 @@
+# Dependencies
 node_modules/
-session/
+dist/
+
+# Environment
 .env
+.env.local
+.env.*.local
+
+# Runtime & Sessions
+session/
+user_sessions/
+running_bots/
+*.zip
 *.log
+pids/
+
+# OS / IDE
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
