@@ -12,7 +12,7 @@
     "start": "node --experimental-websocket index.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "6.7.18",
+    "@whiskeysockets/baileys": "6.7.22",
     "@supabase/supabase-js": "^2.39.0",
     "adm-zip": "^0.5.10",
     "axios": "^1.6.0",
